@@ -1,0 +1,698 @@
+:root {
+    --primary: #d32f2f;
+    --primary-dark: #b71c1c;
+    --primary-light: #ffcdd2;
+    --bg-color: #f4f6f8;
+    --text-color: #333;
+    --card-bg: #ffffff;
+    --border-radius: 12px;
+    --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    line-height: 1.6;
+}
+
+/* Layout */
+.navbar {
+    background-color: var(--card-bg);
+    padding: 1rem 3rem;
+    box-shadow: var(--shadow);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    border-bottom: 4px solid var(--primary);
+}
+
+.nav-brand {
+    font-size: 1.8rem;
+    font-weight: 800;
+    color: var(--primary);
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.nav-logo {
+    height: 50px;
+    width: auto;
+}
+
+.nav-links {
+    display: flex;
+    gap: 1.5rem;
+}
+
+.nav-link {
+    text-decoration: none;
+    color: #555;
+    font-weight: 600;
+    transition: all 0.3s;
+    padding: 0.6rem 1.2rem;
+    border-radius: 8px;
+}
+
+.nav-link:hover,
+.nav-link.active {
+    color: white;
+    background-color: var(--primary);
+}
+
+.container {
+    max-width: 1400px;
+    margin: 3rem auto;
+    padding: 0 2rem;
+}
+
+.view-section {
+    animation: fadeIn 0.4s ease-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Headers & Actions */
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+    background: white;
+    padding: 1.5rem;
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow);
+}
+
+.section-header h1 {
+    font-size: 1.8rem;
+    color: #1a1a1a;
+    font-weight: 700;
+}
+
+.actions {
+    display: flex;
+    gap: 1rem;
+}
+
+/* Buttons */
+.btn-primary,
+.btn-secondary {
+    padding: 0.75rem 1.5rem;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.95rem;
+}
+
+.btn-primary {
+    background-color: var(--primary);
+    color: white;
+    box-shadow: 0 4px 6px rgba(211, 47, 47, 0.2);
+}
+
+.btn-primary:hover {
+    background-color: var(--primary-dark);
+    transform: translateY(-2px);
+}
+
+.btn-secondary {
+    background-color: white;
+    border: 2px solid #eee;
+    color: #555;
+}
+
+.btn-secondary:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+.btn-sm {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.85rem;
+}
+
+/* Cards */
+.grid-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+    gap: 2rem;
+}
+
+.participant-card {
+    background: var(--card-bg);
+    padding: 2rem;
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow);
+    border-left: 5px solid var(--primary);
+    transition: transform 0.2s;
+}
+
+.participant-card:hover {
+    transform: translateY(-5px);
+}
+
+.participant-card h3 {
+    font-size: 1.2rem;
+    margin-bottom: 1rem;
+    color: #1a1a1a;
+}
+
+.card-details {
+    margin: 1rem 0;
+    font-size: 0.9rem;
+    color: #666;
+}
+
+.schedule-badge {
+    display: inline-block;
+    background: #f0f0f0;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin: 2px;
+    font-size: 0.8rem;
+}
+
+.schedule-badge.active {
+    background: var(--primary-light);
+    color: var(--primary-dark);
+    font-weight: bold;
+}
+
+/* Modals */
+.modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+    backdrop-filter: blur(2px);
+}
+
+.modal-content {
+    background: white;
+    padding: 2.5rem;
+    border-radius: var(--border-radius);
+    width: 90%;
+    max-width: 600px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+}
+
+.modal-content h2 {
+    margin-bottom: 1.5rem;
+    color: var(--primary);
+}
+
+.form-group {
+    margin-bottom: 1.5rem;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+    color: #333;
+}
+
+.form-group input,
+.form-group select {
+    width: 100%;
+    padding: 0.8rem;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-size: 1rem;
+}
+
+/* Schedule Grid in Modal */
+.schedule-grid {
+    display: grid;
+    grid-template-columns: 100px repeat(2, 1fr);
+    gap: 10px;
+    align-items: center;
+    margin-top: 10px;
+}
+
+.schedule-header {
+    font-weight: bold;
+    font-size: 0.9rem;
+    color: #666;
+    text-align: center;
+}
+
+.schedule-row {
+    display: contents;
+}
+
+.schedule-cell {
+    text-align: center;
+}
+
+/* Tabs */
+.tabs {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.tab-btn {
+    background: white;
+    border: none;
+    padding: 1rem 2rem;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #666;
+    cursor: pointer;
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow);
+    transition: all 0.3s;
+}
+
+.tab-btn.active {
+    background: var(--primary);
+    color: white;
+    transform: translateY(-2px);
+}
+
+/* Controls */
+.controls-bar {
+    background: white;
+    padding: 1rem 2rem;
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+    border-left: 5px solid var(--primary);
+}
+
+.date-nav {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.date-nav input {
+    padding: 0.6rem;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 1rem;
+    font-family: inherit;
+}
+
+/* Attendance Table */
+.attendance-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    background: white;
+    border-radius: var(--border-radius);
+    overflow: hidden;
+    box-shadow: var(--shadow);
+}
+
+.attendance-table th,
+.attendance-table td {
+    padding: 1.2rem;
+    text-align: left;
+    border-bottom: 1px solid #eee;
+}
+
+.attendance-table th {
+    background-color: #f8f9fa;
+    font-weight: 700;
+    color: #444;
+    text-transform: uppercase;
+    font-size: 0.85rem;
+    letter-spacing: 0.5px;
+}
+
+.att-comm {
+    width: 100%;
+    padding: 0.8rem;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    transition: border-color 0.2s;
+}
+
+.att-comm:focus {
+    border-color: var(--primary);
+    outline: none;
+}
+
+/* Success Mark */
+.check-mark {
+    color: var(--primary);
+    font-size: 1.8rem;
+    font-weight: bold;
+    margin-left: 1rem;
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+.check-mark.visible {
+    opacity: 1;
+}
+
+/* Dashboard Calendar Table */
+.calendar-container {
+    overflow-x: auto;
+    background: white;
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow);
+    padding: 1rem;
+    margin-bottom: 2rem;
+}
+
+.calendar-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+.calendar-table th {
+    background: var(--primary);
+    color: white;
+    padding: 10px 4px;
+    border: 1px solid #b71c1c;
+}
+
+.calendar-table td {
+    border: 1px solid #e0e0e0;
+    padding: 4px;
+    text-align: center;
+    min-width: 25px;
+}
+
+.calendar-table .name-col {
+    text-align: left;
+    padding: 0 10px;
+    font-weight: bold;
+    min-width: 150px;
+    background: #fff;
+    border-right: 2px solid #eee;
+}
+
+.calendar-table .period-col {
+    text-align: center;
+    font-weight: 600;
+    font-size: 0.8rem;
+    color: #666;
+    background: #fcfcfc;
+    width: 40px;
+}
+
+.calendar-table .weekend {
+    background-color: #f9f9f9;
+}
+
+/* Cell Colors */
+.cell-x {
+    background-color: #ffebee;
+    color: #c62828;
+    font-weight: bold;
+}
+
+.cell-other {
+    border: 2px solid var(--primary);
+    background-color: #fff;
+    color: var(--primary-dark);
+    font-weight: bold;
+}
+
+.cell-unknown {
+    background-color: #fff3e0;
+    gap: 10px;
+    align-items: center;
+    margin-top: 10px;
+}
+
+.schedule-header {
+    font-weight: bold;
+    font-size: 0.9rem;
+    color: #666;
+    text-align: center;
+}
+
+.schedule-row {
+    display: contents;
+}
+
+.schedule-cell {
+    text-align: center;
+}
+
+/* Tabs */
+.tabs {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.tab-btn {
+    background: white;
+    border: none;
+    padding: 1rem 2rem;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #666;
+    cursor: pointer;
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow);
+    transition: all 0.3s;
+}
+
+.tab-btn.active {
+    background: var(--primary);
+    color: white;
+    transform: translateY(-2px);
+}
+
+/* Controls */
+.controls-bar {
+    background: white;
+    padding: 1rem 2rem;
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+    border-left: 5px solid var(--primary);
+}
+
+.date-nav {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.date-nav input {
+    padding: 0.6rem;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 1rem;
+    font-family: inherit;
+}
+
+/* Attendance Table */
+.attendance-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    background: white;
+    border-radius: var(--border-radius);
+    overflow: hidden;
+    box-shadow: var(--shadow);
+}
+
+.attendance-table th,
+.attendance-table td {
+    padding: 1.2rem;
+    text-align: left;
+    border-bottom: 1px solid #eee;
+}
+
+.attendance-table th {
+    background-color: #f8f9fa;
+    font-weight: 700;
+    color: #444;
+    text-transform: uppercase;
+    font-size: 0.85rem;
+    letter-spacing: 0.5px;
+}
+
+.att-comm {
+    width: 100%;
+    padding: 0.8rem;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    transition: border-color 0.2s;
+}
+
+.att-comm:focus {
+    border-color: var(--primary);
+    outline: none;
+}
+
+/* Success Mark */
+.check-mark {
+    color: var(--primary);
+    font-size: 1.8rem;
+    font-weight: bold;
+    margin-left: 1rem;
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+.check-mark.visible {
+    opacity: 1;
+}
+
+/* Dashboard Calendar Table */
+.calendar-container {
+    overflow-x: auto;
+    background: white;
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow);
+    padding: 1rem;
+    margin-bottom: 2rem;
+}
+
+.calendar-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+.calendar-table th {
+    background: var(--primary);
+    color: white;
+    padding: 10px 4px;
+    border: 1px solid #b71c1c;
+}
+
+.calendar-table td {
+    border: 1px solid #e0e0e0;
+    padding: 4px;
+    text-align: center;
+    min-width: 25px;
+}
+
+.calendar-table .name-col {
+    text-align: left;
+    padding: 0 10px;
+    font-weight: bold;
+    min-width: 150px;
+    background: #fff;
+    border-right: 2px solid #eee;
+}
+
+.calendar-table .period-col {
+    text-align: center;
+    font-weight: 600;
+    font-size: 0.8rem;
+    color: #666;
+    background: #fcfcfc;
+    width: 40px;
+}
+
+.calendar-table .weekend {
+    background-color: #f9f9f9;
+}
+
+/* Cell Colors */
+.cell-x {
+    background-color: #ffebee;
+    color: #c62828;
+    font-weight: bold;
+}
+
+.cell-other {
+    border: 2px solid var(--primary);
+    background-color: #fff;
+    color: var(--primary-dark);
+    font-weight: bold;
+}
+
+.cell-unknown {
+    background-color: #fff3e0;
+    color: #ef6c00;
+    font-weight: bold;
+    border: 2px solid red !important;
+}
+
+.cell-disabled {
+    background-color: #e0e0e0 !important;
+    color: #999;
+}
+
+/* Modal Styles */
+.modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+}
+
+.modal>div {
+    background-color: white;
+    border-radius: var(--border-radius);
+    padding: 2rem;
+    max-width: 600px;
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+.modal h2 {
+    margin-bottom: 1.5rem;
+    color: var(--primary);
+}
+
+.modal .form-actions {
+    display: flex;
+    gap: 1rem;
+    justify-content: flex-end;
+    margin-top: 2rem;
+    padding-top: 1rem;
+    border-top: 1px solid #eee;
+}

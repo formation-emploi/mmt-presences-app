@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Présences MMT</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    </script>
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+    <link rel="stylesheet" href="./style.css">
+</head>
+
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">
+            <img src="Picto_perso _FE en tête simpli.png" alt="Logo" class="nav-logo">
+            Présences MMT
+        </div>
+        <div class="nav-links">
+            <a href="#dashboard" class="nav-link active">Tableau de bord</a>
+            <a href="#participants" class="nav-link">Participants</a>
+            <a href="#classes" class="nav-link">Classes</a>
+        </div>
+    </nav>
+
+    <main class="container">
+        <!-- Dashboard View -->
+        <section id="dashboard" class="view-section">
+            <div class="section-header">
+                <h1>Tableau de bord</h1>
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                    <button id="btn-prev-month" class="btn-secondary"
+                        style="font-weight: bold; padding: 0.5rem 1rem;">&lt;</button>
+                    <input type="month" id="dashboard-month"
+                        style="padding: 0.5rem 1rem; border-radius: 8px; border: 1px solid #ddd; font-family: 'Inter', sans-serif; font-size: 1rem; color: var(--primary); font-weight: 600; outline: none; cursor: pointer;">
+                    <button id="btn-next-month" class="btn-secondary"
+                        style="font-weight: bold; padding: 0.5rem 1rem;">&gt;</button>
+                </div>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button onclick="window.app.generateMonthlyReport()" class="btn-primary"
+                        title="Générer et imprimer tous les rapports">🖨️ Imprimer les MMT</button>
+                </div>
+            </div>
+
+            <div id="dashboard-content">
+                <!-- Calendar tables will be generated here -->
+            </div>
+        </section>
+
+        <!-- Participants View -->
+        <section id="participants" class="view-section" style="display: none;">
+            <div class="section-header">
+                <h1>Participants</h1>
+                <div style="display: flex; gap: 1rem;">
+                    <button onclick="window.app.openModal('modal-pdf-import')" class="btn-secondary">📄 Importer
+                        PDF</button>
+                    <!-- <button onclick="window.app.openNewParticipantModal()" class="btn-primary">+ Nouveau
+                        Participant</button> -->
+                </div>
+            </div>
+
+            <!-- Batch Actions -->
+            <div
+                style="padding: 1rem; background: #f8f9fa; border-radius: 8px; margin-bottom: 1rem; display: flex; align-items: center; gap: 1rem;">
+                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                    <input type="checkbox" id="cb-select-all-participants"
+                        onchange="window.app.toggleSelectAllParticipants(this)">
+                    <strong>Tout sélectionner</strong>
+                </label>
+                <button onclick="window.app.deleteSelectedParticipants()" class="btn-secondary"
+                    style="color: var(--danger); border-color: var(--danger);">
+                    🗑️ Supprimer la sélection
+                </button>
+            </div>
+
+            <div id="participants-list" class="grid-list">
+                <!-- Participants will be loaded here -->
+            </div>
+        </section>
+
+        <!-- Classes View -->
+        <section id="classes" class="view-section" style="display: none;">
+            <div class="section-header">
+                <h1>Classes</h1>
+                <button onclick="window.app.openModal('modal-class')" class="btn-primary">+ Nouvelle Classe</button>
+            </div>
+            <div id="classes-list" class="grid-list">
+                <!-- Classes will be loaded here -->
+            </div>
+        </section>
+
+        <!-- Class Details View -->
+        <section id="class-details" class="view-section" style="display: none;">
+            <div class="section-header">
+                <div style="display: flex; align-items: center; gap: 1rem;">
+                    <button id="btn-back-classes" class="btn-secondary">&larr;</button>
+                    <h1 id="class-details-title">Détails Classe</h1>
+                </div>
+                <button onclick="window.app.openManageParticipantsModal()" class="btn-secondary">👥 Gérer
+                    Participants</button>
+            </div>
+
+            <div class="tabs">
+                <button class="tab-btn active" data-tab="attendance">Présences</button>
+                <button class="tab-btn" data-tab="students">Liste Participants</button>
+            </div>
+
+            <div id="tab-attendance" class="tab-content">
+                <div class="controls-bar">
+                    <div class="date-nav">
+                        <button id="btn-prev-date" class="btn-secondary">&lt;</button>
+                        <input type="date" id="attendance-date">
+                        <button id="btn-next-date" class="btn-secondary">&gt;</button>
+                    </div>
+                    <div style="display: flex; align-items: center;">
+                        <button class="btn-primary" style="padding: 1rem 2rem; font-size: 1.1rem;"
+                            onclick="window.saveAttendance()">
+                            Présences contrôlées
+                        </button>
+                        <span id="attendance-check" style="display: none;"></span>
+                    </div>
+                </div>
+                <div id="attendance-grid">
+                    <!-- Attendance grid -->
+                </div>
+            </div>
+
+            <div id="tab-students" class="tab-content" style="display: none;">
+                <div id="class-participants-list" class="grid-list">
+                    <!-- Class participants -->
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Modal Participant -->
+    <div id="modal-participant" class="modal">
+        <div>
+            <h2 id="modal-p-title">Nouveau Participant</h2>
+            <form id="form-participant" onsubmit="window.app.handleParticipantSubmit(event)">
+                <input type="hidden" id="p-id">
+                <div class="form-group">
+                    <label>Prénom</label>
+                    <input type="text" id="p-firstname" required>
+                </div>
+                <div class="form-group">
+                    <label>Nom</label>
+                    <input type="text" id="p-lastname" required>
+                </div>
+                <div class="form-group">
+                    <label>% de Travail</label>
+                    <input type="number" id="p-work-percent" min="0" max="100" value="100">
+                </div>
+                <div class="form-group">
+                    <label>Date de début</label>
+                    <input type="date" id="p-date-start">
+                </div>
+                <div class="form-group">
+                    <label>Date de fin</label>
+                    <input type="date" id="p-date-end">
+                </div>
+                <div class="form-group" style="padding-top: 1rem; border-top: 1px dashed #eee;">
+                    <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer;">
+                        <strong>Interruption MMT</strong>
+                        <input type="checkbox" id="p-interruption-mmt">
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label>Date de l'interruption</label>
+                    <input type="date" id="p-interruption-date">
+                </div>
+                <div class="form-group">
+                    <label>Horaire de présence</label>
+                    <div class="schedule-grid">
+                        <div class="schedule-header">Jour</div>
+                        <div class="schedule-header">Matin</div>
+                        <div class="schedule-header">Après-midi</div>
+
+                        <div class="schedule-row">
+                            <div>Lundi</div>
+                            <div class="schedule-cell"><input type="checkbox" name="sched-1-am" checked></div>
+                            <div class="schedule-cell"><input type="checkbox" name="sched-1-pm" checked></div>
+                        </div>
+                        <div class="schedule-row">
+                            <div>Mardi</div>
+                            <div class="schedule-cell"><input type="checkbox" name="sched-2-am" checked></div>
+                            <div class="schedule-cell"><input type="checkbox" name="sched-2-pm" checked></div>
+                        </div>
+                        <div class="schedule-row">
+                            <div>Mercredi</div>
+                            <div class="schedule-cell"><input type="checkbox" name="sched-3-am" checked></div>
+                            <div class="schedule-cell"><input type="checkbox" name="sched-3-pm" checked></div>
+                        </div>
+                        <div class="schedule-row">
+                            <div>Jeudi</div>
+                            <div class="schedule-cell"><input type="checkbox" name="sched-4-am" checked></div>
+                            <div class="schedule-cell"><input type="checkbox" name="sched-4-pm" checked></div>
+                        </div>
+                        <div class="schedule-row">
+                            <div>Vendredi</div>
+                            <div class="schedule-cell"><input type="checkbox" name="sched-5-am" checked></div>
+                            <div class="schedule-cell"><input type="checkbox" name="sched-5-pm" checked></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn-secondary"
+                        onclick="window.app.closeModal('modal-participant')">Annuler</button>
+                    <button type="submit" class="btn-primary">Enregistrer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Class -->
+    <div id="modal-class" class="modal">
+        <div>
+            <h2>Nouvelle Classe</h2>
+            <form id="form-class" onsubmit="window.app.handleClassSubmit(event)">
+                <input type="hidden" id="c-id">
+                <div class="form-group">
+                    <label>Nom de la classe</label>
+                    <input type="text" id="c-name" required>
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <input type="text" id="c-desc">
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn-secondary"
+                        onclick="window.app.closeModal('modal-class')">Annuler</button>
+                    <button type="submit" class="btn-primary">Créer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Manage Class Participants -->
+    <div id="modal-manage-participants" class="modal">
+        <div>
+            <h2>Gérer les Participants</h2>
+            <p style="margin-bottom: 1rem; color: #666;">Cochez les participants à inclure dans cette classe.</p>
+            <div id="manage-participants-list"
+                style="max-height: 300px; overflow-y: auto; margin-bottom: 1.5rem; border: 1px solid #eee; padding: 1rem; border-radius: 8px;">
+                <!-- Checkboxes generated by JS -->
+            </div>
+            <div class="form-actions">
+                <button type="button" class="btn-secondary"
+                    onclick="window.app.closeModal('modal-manage-participants')">Annuler</button>
+                <button type="button" class="btn-primary" onclick="window.app.saveClassParticipants()">Mettre à
+                    jour</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Import PDF -->
+    <div id="modal-pdf-import" class="modal">
+        <div>
+            <h2>Importer depuis PDF</h2>
+            <p style="margin-bottom: 1rem; color: #666;">Sélectionnez un ou plusieurs formulaires PDF à importer.</p>
+            <form id="form-import-pdf">
+                <div class="form-group">
+                    <label>Fichiers PDF</label>
+                    <input type="file" id="pdf-file" accept=".pdf" multiple>
+                </div>
+                <div id="import-preview" style="margin-top: 1rem;"></div>
+                <div class="form-actions">
+                    <button type="button" class="btn-secondary" id="btn-cancel-import"
+                        onclick="window.app.closeModal('modal-pdf-import')">Annuler</button>
+                    <button type="submit" class="btn-primary">Importer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Print Selection -->
+    <div id="modal-print-selection" class="modal">
+        <div>
+            <h2>Imprimer les MMT</h2>
+            <p style="margin-bottom: 1rem; color: #666;">Sélectionnez les classes ou participants à inclure dans
+                l'impression.</p>
+            <div id="print-class-selection-list"
+                style="max-height: 300px; overflow-y: auto; margin-bottom: 1.5rem; border: 1px solid #eee; padding: 1rem; border-radius: 8px;">
+                <!-- Checkboxes generated by JS -->
+            </div>
+            <div class="form-actions">
+                <button type="button" class="btn-secondary"
+                    onclick="window.app.closeModal('modal-print-selection')">Annuler</button>
+                <button type="button" class="btn-primary"
+                    onclick="window.app.confirmPrintSelection()">Continuer</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Date Selection -->
+    <div id="modal-date-selection" class="modal" style="z-index: 2000;">
+        <div style="max-width: 400px;">
+            <h2>Date de signature</h2>
+            <p style="margin-bottom: 1.5rem; color: #666;">Veuillez choisir ou saisir la date de signature.</p>
+            <div class="form-group">
+                <label>Date</label>
+                <input type="date" id="input-signature-date" style="font-size: 1.1rem; padding: 0.5rem;">
+            </div>
+            <div class="form-group" style="padding-top: 1rem; border-top: 1px dashed #eee; margin-top: 1rem;">
+                <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer;">
+                    <strong>Correction</strong>
+                    <input type="checkbox" id="input-is-correction">
+                </label>
+                <p style="font-size: 0.85rem; color: #666; margin-top: 0.2rem;">Coche la case "Remplace le formulaire
+                    précédent"</p>
+            </div>
+            <div class="form-actions">
+                <button type="button" class="btn-secondary"
+                    onclick="window.app.resolveDateSelection(null)">Annuler</button>
+                <button type="button" class="btn-primary"
+                    onclick="window.app.resolveDateSelection({ date: document.getElementById('input-signature-date').value, isCorrection: document.getElementById('input-is-correction').checked })">Confirmer</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="attendance.js"></script>
+    <script src="pdf_generator.js"></script>
+    <script src="pdf_parser.js"></script>
+    <script src="app.js"></script>
+</body>
+
+</html>
