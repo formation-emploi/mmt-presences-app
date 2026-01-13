@@ -1350,6 +1350,17 @@
                     }
                 }
 
+                // Supprimer la page 3 si elle existe (nouvelle version du formulaire)
+                try {
+                    const pageCount = pdfDoc.getPageCount();
+                    if (pageCount >= 3) {
+                        pdfDoc.removePage(2); // Index 2 = page 3
+                        console.log('✅ Page 3 supprimée du PDF');
+                    }
+                } catch (e) {
+                    console.warn('⚠️ Impossible de supprimer la page 3:', e);
+                }
+
                 try { form.flatten(); } catch (e) { }
                 return await pdfDoc.save();
 
