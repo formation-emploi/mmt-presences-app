@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connexion - MMT Présences</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .login-container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            width: 100%;
+            max-width: 400px;
+            animation: slideUp 0.5s ease;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .logo {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .logo h1 {
+            color: #dc2626;
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .logo p {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 15px;
+            font-family: 'Inter', sans-serif;
+            transition: all 0.3s ease;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #dc2626;
+            box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1);
+        }
+
+        .btn-login {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            margin-top: 10px;
+        }
+
+        .btn-login:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(220, 38, 38, 0.3);
+        }
+
+        .btn-login:active {
+            transform: translateY(0);
+        }
+
+        .btn-login:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .error-message {
+            background: #fee;
+            color: #c33;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            display: none;
+        }
+
+        .error-message.show {
+            display: block;
+            animation: shake 0.5s ease;
+        }
+
+        @keyframes shake {
+
+            0%,
+            100% {
+                transform: translateX(0);
+            }
+
+            25% {
+                transform: translateX(-10px);
+            }
+
+            75% {
+                transform: translateX(10px);
+            }
+        }
+
+        .divider {
+            text-align: center;
+            margin: 25px 0;
+            position: relative;
+        }
+
+        .divider::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 50%;
+            width: 100%;
+            height: 1px;
+            background: #e0e0e0;
+        }
+
+        .divider span {
+            background: white;
+            padding: 0 15px;
+            position: relative;
+            color: #999;
+            font-size: 13px;
+        }
+
+        .register-link {
+            text-align: center;
+            margin-top: 20px;
+            color: #666;
+            font-size: 14px;
+        }
+
+        .register-link a {
+            color: #dc2626;
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .register-link a:hover {
+            text-decoration: underline;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            margin-top: 10px;
+        }
+
+        .loading.show {
+            display: block;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #dc2626;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="login-container">
+        <div class="logo">
+            <h1>MMT Présences</h1>
+            <p>Gestion des présences MMT</p>
+        </div>
+
+        <div id="error-message" class="error-message"></div>
+
+        <form id="login-form">
+            <div class="form-group">
+                <label for="email">Adresse email</label>
+                <input type="email" id="email" placeholder="votre.email@frmpl.ch" required>
+            </div>
+
+            <div class="form-group">
+                <label for="password">Mot de passe</label>
+                <input type="password" id="password" placeholder="••••••••" required>
+            </div>
+
+            <button type="submit" class="btn-login" id="btn-login">
+                Se connecter
+            </button>
+        </form>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+        </div>
+
+        <div class="divider">
+            <span>ou</span>
+        </div>
+
+        <div class="register-link">
+            Pas encore de compte ? <a href="#" id="link-register">Contactez l'administrateur</a>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getAuth, signInWithEmailAndPassword } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+
+        // Configuration Firebase
+        const firebaseConfig = {
+            apiKey: "AIzaSyC9Jp7YGeYxYja5rIRXSdVQFvVMmiMU7Ko",
+            authDomain: "mmt-presences-app.firebaseapp.com",
+            projectId: "mmt-presences-app",
+            storageBucket: "mmt-presences-app.firebasestorage.app",
+            messagingSenderId: "859089098904",
+            appId: "1:859089098904:web:4dc75d1d2813509278d8ed"
+        };
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+
+        // Éléments DOM
+        const loginForm = document.getElementById('login-form');
+        const emailInput = document.getElementById('email');
+        const passwordInput = document.getElementById('password');
+        const btnLogin = document.getElementById('btn-login');
+        const errorMessage = document.getElementById('error-message');
+        const loading = document.getElementById('loading');
+
+        // Gestion de la soumission du formulaire
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const email = emailInput.value.trim();
+            const password = passwordInput.value;
+
+            // Validation
+            if (!email || !password) {
+                showError('Veuillez remplir tous les champs');
+                return;
+            }
+
+            // Afficher le chargement
+            btnLogin.disabled = true;
+            btnLogin.textContent = 'Connexion...';
+            loading.classList.add('show');
+            hideError();
+
+            try {
+                // Connexion Firebase
+                const userCredential = await signInWithEmailAndPassword(auth, email, password);
+
+                // Succès !
+                console.log('Connexion réussie:', userCredential.user.email);
+
+                // Redirection vers l'application
+                window.location.href = 'index.html';
+
+            } catch (error) {
+                console.error('Erreur de connexion:', error);
+
+                // Messages d'erreur en français
+                let message = 'Erreur de connexion';
+
+                switch (error.code) {
+                    case 'auth/invalid-email':
+                        message = 'Adresse email invalide';
+                        break;
+                    case 'auth/user-disabled':
+                        message = 'Ce compte a été désactivé';
+                        break;
+                    case 'auth/user-not-found':
+                        message = 'Aucun compte trouvé avec cette adresse email';
+                        break;
+                    case 'auth/wrong-password':
+                        message = 'Mot de passe incorrect';
+                        break;
+                    case 'auth/invalid-credential':
+                        message = 'Email ou mot de passe incorrect';
+                        break;
+                    case 'auth/too-many-requests':
+                        message = 'Trop de tentatives. Réessayez plus tard';
+                        break;
+                    default:
+                        message = error.message;
+                }
+
+                showError(message);
+
+            } finally {
+                // Réinitialiser le bouton
+                btnLogin.disabled = false;
+                btnLogin.textContent = 'Se connecter';
+                loading.classList.remove('show');
+            }
+        });
+
+        // Afficher une erreur
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.classList.add('show');
+        }
+
+        // Masquer l'erreur
+        function hideError() {
+            errorMessage.classList.remove('show');
+        }
+
+        // Lien d'inscription
+        document.getElementById('link-register').addEventListener('click', (e) => {
+            e.preventDefault();
+            alert('Contactez votre administrateur pour créer un compte :\np.schaffner@frmpl.ch');
+        });
+    </script>
+</body>
+
+</html>

@@ -11,19 +11,55 @@
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     </script>
     <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+
+    <!-- Firebase Authentication Check -->
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+
+        // Configuration Firebase
+        const firebaseConfig = {
+            apiKey: "AIzaSyC9Jp7YGeYxYja5rIRXSdVQFvVMmiMU7Ko",
+            authDomain: "mmt-presences-app.firebaseapp.com",
+            projectId: "mmt-presences-app",
+            storageBucket: "mmt-presences-app.firebasestorage.app",
+            messagingSenderId: "859089098904",
+            appId: "1:859089098904:web:4dc75d1d2813509278d8ed"
+        };
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+
+        // Vérifier l'authentification
+        onAuthStateChanged(auth, (user) => {
+            if (!user) {
+                // Pas connecté, rediriger vers login
+                window.location.href = 'login.html';
+            } else {
+                // Connecté, afficher l'email dans la console
+                console.log('Utilisateur connecté:', user.email);
+                // Stocker l'utilisateur pour l'application
+                window.currentUser = user;
+            }
+        });
+    </script>
+
     <link rel="stylesheet" href="./style.css">
 </head>
 
 <body>
     <nav class="navbar">
         <div class="nav-brand">
-            <img src="Picto_perso _FE en tête simpli.png" alt="Logo" class="nav-logo">
+            <img src="logo.png" alt="Logo" class="nav-logo">
             Présences MMT
         </div>
         <div class="nav-links">
             <a href="#dashboard" class="nav-link active">Tableau de bord</a>
             <a href="#participants" class="nav-link">Participants</a>
             <a href="#classes" class="nav-link">Classes</a>
+            <span id="user-email" style="color: #666; margin-left: 20px; font-size: 14px;"></span>
+            <button id="btn-logout" class="btn-secondary" style="margin-left: 10px;">🚪 Déconnexion</button>
         </div>
     </nav>
 
@@ -327,6 +363,31 @@
     <script src="pdf_generator.js"></script>
     <script src="pdf_parser.js"></script>
     <script src="app.js"></script>
+
+    <!-- Script de déconnexion -->
+    <script type="module">
+        import { getAuth, signOut } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+
+        const auth = getAuth();
+
+        // Afficher l'email de l'utilisateur
+        if (window.currentUser) {
+            document.getElementById('user-email').textContent = window.currentUser.email;
+        }
+
+        // Gérer le bouton de déconnexion
+        document.getElementById('btn-logout').addEventListener('click', async () => {
+            if (confirm('Voulez-vous vraiment vous déconnecter ?')) {
+                try {
+                    await signOut(auth);
+                    window.location.href = 'login.html';
+                } catch (error) {
+                    console.error('Erreur de déconnexion:', error);
+                    alert('Erreur lors de la déconnexion');
+                }
+            }
+        });
+    </script>
 </body>
 
 </html>
