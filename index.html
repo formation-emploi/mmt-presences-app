@@ -1273,11 +1273,14 @@
 
                 // Position 2: Field 5.25 position - now for signature image
                 if (signatureId) {
+                    console.log('🔍 Signature ID fourni:', signatureId);
                     try {
                         const signatures = await dbService.getAll('signatures');
+                        console.log('📋 Signatures disponibles:', signatures.length);
                         const signature = signatures.find(s => s.id === signatureId);
 
                         if (signature && signature.imageData) {
+                            console.log('✅ Signature trouvée, chargement de l\'image...');
                             // Convert Base64 to bytes
                             const imageBytes = Uint8Array.from(atob(signature.imageData.split(',')[1]), c => c.charCodeAt(0));
 
@@ -1285,8 +1288,10 @@
                             let image;
                             if (signature.imageData.includes('image/png')) {
                                 image = await pdfDoc.embedPng(imageBytes);
+                                console.log('✅ Image PNG embedée');
                             } else {
                                 image = await pdfDoc.embedJpg(imageBytes);
+                                console.log('✅ Image JPG embedée');
                             }
 
                             // Use field 5.25 by getting its position
@@ -3088,13 +3093,17 @@
 
                         // Generate individual PDF
                         const filledBytes = await window.pdfGenerator.generatePDF(p, pAttendance, templateBytes, signatureDate, isCorrection, signatureId);
-
                         // Load it to copy pages
                         const filledPdf = await PDFLib.PDFDocument.load(filledBytes);
                         const copiedPages = await mergedPdf.copyPages(filledPdf, filledPdf.getPageIndices());
 
                         copiedPages.forEach((page) => mergedPdf.addPage(page));
                         processedCount++;
+
+                        // Ajouter un délai de 100ms entre chaque PDF pour laisser le temps à l'image de se charger
+                        if (processedCount < ids.length) {
+                            await new Promise(resolve => setTimeout(resolve, 100));
+                        }
                     }
 
                     // Save merged PDF
