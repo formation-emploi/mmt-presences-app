@@ -1351,11 +1351,15 @@
                 }
 
                 // Supprimer la page 3 si elle existe (nouvelle version du formulaire)
+                console.log('🔍 Vérification du nombre de pages...');
                 try {
                     const pageCount = pdfDoc.getPageCount();
+                    console.log(`📄 Le PDF contient ${pageCount} pages`);
                     if (pageCount >= 3) {
                         pdfDoc.removePage(2); // Index 2 = page 3
                         console.log('✅ Page 3 supprimée du PDF');
+                    } else {
+                        console.log('ℹ️ Le PDF contient moins de 3 pages, rien à supprimer');
                     }
                 } catch (e) {
                     console.warn('⚠️ Impossible de supprimer la page 3:', e);
