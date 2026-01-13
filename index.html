@@ -1636,10 +1636,39 @@
 
             // --- FILE MODE METHODS ---
             async loadFromFile() {
+                // 1. Charger depuis localStorage (fallback)
                 const backup = localStorage.getItem(this.storageKey);
                 if (backup) {
                     try { this.data = JSON.parse(backup); } catch (e) { }
                 }
+
+                // 2. Charger depuis Firestore si disponible
+                if (window.firebaseDb && window.currentUser) {
+                    try {
+                        const { getDoc, doc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+                        const userDataRef = doc(window.firebaseDb, 'users', window.currentUser.uid);
+                        const docSnap = await getDoc(userDataRef);
+
+                        if (docSnap.exists()) {
+                            const firestoreData = docSnap.data();
+                            this.data = {
+                                participants: firestoreData.participants || [],
+                                classes: firestoreData.classes || [],
+                                attendances: firestoreData.attendances || []
+                            };
+                            console.log('✅ Données chargées depuis Firestore');
+                            // Sauvegarder aussi en localStorage pour le fallback
+                            localStorage.setItem(this.storageKey, JSON.stringify(this.data));
+                        } else {
+                            console.log('ℹ️ Pas de données Firestore, utilisation de localStorage');
+                        }
+                    } catch (error) {
+                        console.error('❌ Erreur chargement Firestore:', error);
+                        // Continue avec localStorage
+                    }
+                }
+
+                // 3. Charger depuis fichier JSON (ancien système)
                 try {
                     const response = await fetch(`${this.jsonUrl}?t=${new Date().getTime()}`);
                     if (response.ok) {
@@ -1724,7 +1753,26 @@
 
             // Generic Save Dispatcher
             async save() {
+                // Toujours sauvegarder en localStorage (fallback)
                 localStorage.setItem(this.storageKey, JSON.stringify(this.data));
+
+                // Sauvegarder aussi dans Firestore si disponible
+                if (window.firebaseDb && window.currentUser) {
+                    try {
+                        const { setDoc, doc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+                        const userDataRef = doc(window.firebaseDb, 'users', window.currentUser.uid);
+                        await setDoc(userDataRef, {
+                            participants: this.data.participants || [],
+                            classes: this.data.classes || [],
+                            attendances: this.data.attendances || [],
+                            lastUpdated: new Date().toISOString()
+                        });
+                        console.log('✅ Données sauvegardées dans Firestore');
+                    } catch (error) {
+                        console.error('❌ Erreur Firestore:', error);
+                        // Continue avec localStorage seulement
+                    }
+                }
 
                 if (this.useSharePointLists) {
                     console.log('ℹ️ List Mode: Global save ignored (Using item-level logic).');
@@ -4573,6 +4621,7 @@
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
         import { getAuth, onAuthStateChanged, signOut } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+        import { getFirestore, collection, doc, getDoc, getDocs, setDoc, deleteDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
 
         const firebaseConfig = {
             apiKey: "AIzaSyC9Jp7YGeYxYja5rIRXSdVQFvVMmiMU7Ko",
@@ -4585,6 +4634,10 @@
 
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        // Rendre db accessible globalement
+        window.firebaseDb = db;
 
         // Vérifier l'authentification
         onAuthStateChanged(auth, (user) => {
@@ -4600,6 +4653,17 @@
                 const userEmailEl = document.getElementById('user-email');
                 if (userEmailEl) {
                     userEmailEl.textContent = user.email;
+                }
+
+                // Recharger les données depuis Firestore maintenant que l'utilisateur est connecté
+                if (window.dbService && window.dbService.loadFromFile) {
+                    console.log('🔄 Rechargement des données depuis Firestore...');
+                    window.dbService.loadFromFile().then(() => {
+                        console.log('✅ Données rechargées');
+                        // Rafraîchir l'affichage si on est sur le dashboard
+                        if (window.renderDashboard) window.renderDashboard();
+                        if (window.loadParticipantsView) window.loadParticipantsView();
+                    });
                 }
             }
         });
