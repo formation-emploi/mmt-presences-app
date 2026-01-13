@@ -41,11 +41,25 @@
                 console.log('Utilisateur connecté:', user.email);
                 // Stocker l'utilisateur pour l'application
                 window.currentUser = user;
+                // Afficher la page
+                document.body.classList.add('loaded');
             }
         });
     </script>
 
     <link rel="stylesheet" href="./style.css">
+
+    <style>
+        /* Cacher le contenu pendant la vérification d'authentification */
+        body {
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        body.loaded {
+            opacity: 1;
+        }
+    </style>
 </head>
 
 <body>
