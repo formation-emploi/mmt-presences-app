@@ -1629,24 +1629,33 @@
                 const today = new Date();
                 today.setHours(0, 0, 0, 0);
 
+                // Keep active until the end of the current month
+                // Archive only if endDate is strictly before the 1st of the current month
+                const archiveThreshold = new Date(today.getFullYear(), today.getMonth(), 1);
+
                 const toArchive = this.data.participants.filter(p => {
                     if (!p.dateEnd) return false;
                     const endDate = new Date(p.dateEnd);
-                    return endDate < today;
+                    return endDate < archiveThreshold;
                 });
 
                 if (toArchive.length > 0) {
                     console.log(`📦 Archiving ${toArchive.length} expired participant(s)`);
 
-                    // Move to archives
                     if (!this.data.archivedParticipants) this.data.archivedParticipants = [];
-                    this.data.archivedParticipants.push(...toArchive);
+
+                    // Add to archive (checking unicity just in case)
+                    toArchive.forEach(p => {
+                        if (!this.data.archivedParticipants.find(ap => ap.id === p.id)) {
+                            this.data.archivedParticipants.push(p);
+                        }
+                    });
 
                     // Remove from active participants
                     this.data.participants = this.data.participants.filter(p => {
                         if (!p.dateEnd) return true;
                         const endDate = new Date(p.dateEnd);
-                        return endDate >= today;
+                        return endDate >= archiveThreshold;
                     });
 
                     // Save changes
