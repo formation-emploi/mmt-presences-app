@@ -2299,8 +2299,37 @@
             container.innerHTML = '<p>Chargement...</p>';
 
             try {
-                // Fetch all data
-                const participants = await participantService.getAllParticipants();
+                // Fetch all data (Active + Archived)
+                let rawParticipants = await participantService.getAllParticipants();
+                if (dbService.data.archivedParticipants) {
+                    // Merge unique participants
+                    const activeIds = new Set(rawParticipants.map(p => p.id));
+                    const archived = dbService.data.archivedParticipants.filter(p => !activeIds.has(p.id));
+                    rawParticipants = [...rawParticipants, ...archived];
+                }
+
+                // Filter by Date Overlap with current View Month
+                const [vYear, vMonth] = monthValue.split('-').map(Number);
+                const viewStart = new Date(vYear, vMonth - 1, 1);
+                const viewEnd = new Date(vYear, vMonth, 0);
+                viewEnd.setHours(23, 59, 59, 999);
+
+                const participants = rawParticipants.filter(p => {
+                    if (!p.dateStart) return true; // Show if no start (legacy)
+                    const pStart = new Date(p.dateStart);
+                    if (isNaN(pStart.getTime())) return true;
+
+                    // If starts after end of view, hide
+                    if (pStart > viewEnd) return false;
+
+                    if (p.dateEnd) {
+                        const pEnd = new Date(p.dateEnd);
+                        // If ends before start of view, hide
+                        if (!isNaN(pEnd.getTime()) && pEnd < viewStart) return false;
+                    }
+                    return true;
+                });
+
                 const allAttendance = await dbService.getAll(STORES.ATTENDANCE);
 
                 // Filter attendance for this month
