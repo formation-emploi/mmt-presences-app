@@ -1156,31 +1156,6 @@
                 const helveticaFont = await pdfDoc.embedFont(PDFLib.StandardFonts.Helvetica);
                 const form = pdfDoc.getForm();
 
-                // NEW: Restore original PDF data if available (from parsePDF)
-                if (participant.pdfData) {
-                    console.log('📝 Restauration des données PDF pour:', participant.firstName);
-                    try {
-                        const pdfData = typeof participant.pdfData === 'string' ? JSON.parse(participant.pdfData) : participant.pdfData;
-                        Object.entries(pdfData).forEach(([fieldName, value]) => {
-                            try {
-                                const field = form.getField(fieldName);
-                                if (field instanceof PDFLib.PDFTextField) {
-                                    field.setText(value);
-                                } else if (field instanceof PDFLib.PDFCheckBox) {
-                                    if (value === true) field.check();
-                                    else field.uncheck();
-                                } else if (field instanceof PDFLib.PDFRadioGroup && value) {
-                                    field.select(value);
-                                }
-                            } catch (e) {
-                                // Ignore fields that might be missing in the template or read-only
-                            }
-                        });
-                    } catch (e) {
-                        console.warn('⚠️ Erreur restauration données PDF:', e);
-                    }
-                }
-
                 let monthYearStr = '';
                 const dashboardMonth = document.getElementById('dashboard-month');
                 if (dashboardMonth && dashboardMonth.value) {
@@ -1294,15 +1269,14 @@
 
                 // Position 2: Field 5.25 position - now for signature image
                 if (signatureId) {
-                    console.log('🔍 DEBUG: Tentative de chargement de la signature:', signatureId);
+                    console.log('🔍 Signature ID fourni:', signatureId);
                     try {
                         const signatures = await dbService.getAll('signatures');
-                        console.log('🔍 DEBUG: Signatures trouvées:', signatures.length, signatures.map(s => s.id));
+                        console.log('📋 Signatures disponibles:', signatures.length);
                         const signature = signatures.find(s => s.id === signatureId);
-                        console.log('🔍 DEBUG: Signature sélectionnée:', signature ? 'Trouvée' : 'NON TROUVÉE');
 
                         if (signature && signature.imageData) {
-                            console.log('🔍 DEBUG: ImageData présent, taille:', signature.imageData.length);
+                            console.log('✅ Signature trouvée, chargement de l\'image...');
                             // Convert Base64 to bytes
                             const imageBytes = Uint8Array.from(atob(signature.imageData.split(',')[1]), c => c.charCodeAt(0));
 
@@ -1310,21 +1284,24 @@
                             let image;
                             if (signature.imageData.includes('image/png')) {
                                 image = await pdfDoc.embedPng(imageBytes);
-                                console.log('✅ DEBUG: Image PNG embedée');
+                                console.log('✅ Image PNG embedée');
                             } else {
                                 image = await pdfDoc.embedJpg(imageBytes);
-                                console.log('✅ DEBUG: Image JPG embedée');
+                                console.log('✅ Image JPG embedée');
                             }
 
                             // Use field 5.25 by getting its position
                             try {
                                 const field = form.getTextField('5.25');
+                                console.log('✅ Field 5.25 found');
 
                                 // Get field position and dimensions
                                 const widgets = field.acroField.getWidgets();
                                 if (widgets.length > 0) {
                                     const widget = widgets[0];
                                     const rect = widget.getRectangle();
+
+                                    console.log('Field 5.25 position:', { x: rect.x, y: rect.y, width: rect.width, height: rect.height });
 
                                     const signatureWidth = rect.width;
                                     const signatureHeight = rect.height;
@@ -1340,6 +1317,7 @@
                                     for (let i = 0; i < pages.length; i++) {
                                         if (pages[i].ref === pageRef) {
                                             targetPage = pages[i];
+                                            console.log(`Field 5.25 is on page ${i + 1}`);
                                             break;
                                         }
                                     }
@@ -1374,10 +1352,15 @@
                 }
 
                 // Supprimer la page 3 si elle existe (nouvelle version du formulaire)
+                console.log('🔍 Vérification du nombre de pages...');
                 try {
                     const pageCount = pdfDoc.getPageCount();
+                    console.log(`📄 Le PDF contient ${pageCount} pages`);
                     if (pageCount >= 3) {
                         pdfDoc.removePage(2); // Index 2 = page 3
+                        console.log('✅ Page 3 supprimée du PDF');
+                    } else {
+                        console.log('ℹ️ Le PDF contient moins de 3 pages, rien à supprimer');
                     }
                 } catch (e) {
                     console.warn('⚠️ Impossible de supprimer la page 3:', e);
@@ -1471,8 +1454,7 @@
                 const result = {
                     firstName: '', lastName: '', courseType: '', dateStart: '', dateEnd: '',
                     workPercent: 100, avsNumber: '', birthDate: '', monthYear: '',
-                    attendance: { days: {}, comments: '' },
-                    pdfData: JSON.stringify(fieldData) // Store all raw fields as JSON string to avoid Firestore limitations
+                    attendance: { days: {}, comments: '' }
                 };
 
                 for (const [fieldName, propertyName] of Object.entries(FIELD_MAPPING)) {
@@ -1685,29 +1667,8 @@
 
                         if (docSnap.exists()) {
                             const firestoreData = docSnap.data();
-
-                            // Helper to convert Base64 to ArrayBuffer
-                            const base64ToArrayBuffer = (base64) => {
-                                const binary_string = window.atob(base64);
-                                const len = binary_string.length;
-                                const bytes = new Uint8Array(len);
-                                for (let i = 0; i < len; i++) {
-                                    bytes[i] = binary_string.charCodeAt(i);
-                                }
-                                return bytes.buffer;
-                            };
-
-                            // Convertir les participants (restaurer ArrayBuffer depuis Base64)
-                            const participants = (firestoreData.participants || []).map(p => {
-                                if (p.isBase64Pdf && p.originalPdf && typeof p.originalPdf === 'string') {
-                                    p.originalPdf = base64ToArrayBuffer(p.originalPdf);
-                                    // p.isBase64Pdf = false; // Keep flag or remove, doesn't matter much internally
-                                }
-                                return p;
-                            });
-
                             this.data = {
-                                participants: participants,
+                                participants: firestoreData.participants || [],
                                 classes: firestoreData.classes || [],
                                 attendances: firestoreData.attendances || []
                             };
@@ -1833,33 +1794,10 @@
                     try {
                         const { setDoc, doc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
 
-                        // Helper to convert ArrayBuffer to Base64
-                        const arrayBufferToBase64 = (buffer) => {
-                            let binary = '';
-                            const bytes = new Uint8Array(buffer);
-                            const len = bytes.byteLength;
-                            for (let i = 0; i < len; i++) {
-                                binary += String.fromCharCode(bytes[i]);
-                            }
-                            return window.btoa(binary);
-                        };
-
-                        // Préparer les participants : RETIRER originalPdf pour Firestore
-                        // Nous stockons maintenant pdfData (extrait texte) qui est léger
-                        const participantsForSave = (this.data.participants || []).map(p => {
-                            const pCopy = { ...p };
-                            // Remove heavy PDF binary/base64 data
-                            if (pCopy.originalPdf) {
-                                delete pCopy.originalPdf;
-                            }
-                            delete pCopy.isBase64Pdf;
-                            return pCopy;
-                        });
-
                         // Sauvegarder les données utilisateur
                         const userDataRef = doc(window.firebaseDb, 'users', window.currentUser.uid);
                         await setDoc(userDataRef, {
-                            participants: participantsForSave,
+                            participants: this.data.participants || [],
                             classes: this.data.classes || [],
                             attendances: this.data.attendances || [],
                             lastUpdated: new Date().toISOString()
@@ -2505,16 +2443,11 @@
                                 cellContentA += interruptionIcon;
                             }
 
-                            // Add onclick for editable cells
-                            const onclickM = isScheduledAm ? `onclick="window.app.editDashboardCell('${p.id}', '${dateStr}', 'morning', '${mCode}', '${comment.replace(/'/g, "\\'")}', '${className}')"` : '';
-                            const onclickA = isScheduledPm ? `onclick="window.app.editDashboardCell('${p.id}', '${dateStr}', 'afternoon', '${aCode}', '${comment.replace(/'/g, "\\'")}', '${className}')"` : '';
-                            const cursorStyle = (isScheduledAm || isScheduledPm) ? 'cursor: pointer;' : '';
-
-                            rowMatin += `<td class="${weekendClass} ${getCellClass(mCode, isScheduledAm)} ${tooltipClass}" ${tooltipAttr} style="${lastDayStyle} ${cursorStyle}" ${lastDayTooltip} ${onclickM}>${cellContentM}</td>`;
+                            rowMatin += `<td class="${weekendClass} ${getCellClass(mCode, isScheduledAm)} ${tooltipClass}" ${tooltipAttr} style="${lastDayStyle}" ${lastDayTooltip}>${cellContentM}</td>`;
 
                             const tooltipClassAm = (aCode === 'G' && comment) ? 'code-g-tooltip' : '';
                             const tooltipAttrAm = (aCode === 'G' && comment) ? `data-comment="${comment}"` : '';
-                            rowAprem += `<td class="${weekendClass} ${getCellClass(aCode, isScheduledPm)} ${tooltipClassAm}" ${tooltipAttrAm} style="border-bottom: 2px solid #e0e0e0; ${lastDayStyle} ${cursorStyle}" ${lastDayTooltip} ${onclickA}>${cellContentA}</td>`;
+                            rowAprem += `<td class="${weekendClass} ${getCellClass(aCode, isScheduledPm)} ${tooltipClassAm}" ${tooltipAttrAm} style="border-bottom: 2px solid #e0e0e0; ${lastDayStyle}" ${lastDayTooltip}>${cellContentA}</td>`;
                         }
 
                         tableHtml += `<tr>${rowMatin}</tr><tr>${rowAprem}</tr>`;
@@ -2665,19 +2598,6 @@
                 for (const id of ids) {
                     await participantService.deleteParticipant(id);
                 }
-
-                // Clean from classes
-                const allClasses = await classService.getAllClasses();
-                for (const c of allClasses) {
-                    if (c.participantIds) {
-                        const originalLen = c.participantIds.length;
-                        c.participantIds = c.participantIds.filter(pid => !ids.includes(pid));
-                        if (c.participantIds.length !== originalLen) {
-                            await classService.updateClass(c);
-                        }
-                    }
-                }
-
                 // Reset select all checkbox
                 const selectAllCb = document.getElementById('cb-select-all-participants');
                 if (selectAllCb) selectAllCb.checked = false;
@@ -2837,15 +2757,7 @@
             btn.disabled = true;
             btn.textContent = 'Traitement...';
 
-            // Show Progress Bar
-            window.app.showProgress('Analyse et importation des PDFs...');
-            let processedCount = 0;
-
             for (const file of files) {
-                // Update Progress
-                processedCount++;
-                window.app.updateProgress(processedCount, files.length, `Traitement de ${file.name}...`);
-
                 try {
                     console.log(`Processing: ${file.name}`);
                     const data = await parsePDF(file);
@@ -2872,14 +2784,14 @@
                     } else {
                         await participantService.addParticipant(data);
                     }
-
+                    
                     // Création automatique de la classe et ajout du participant
                     if (data.courseType) {
                         const allClasses = await classService.getAllClasses();
                         let targetClass = allClasses.find(c => c.name === data.courseType);
-
+                        
                         const participantId = exists ? exists.id : data.id;
-
+                        
                         if (!targetClass) {
                             // Créer la classe si elle n'existe pas
                             const newClass = {
@@ -2901,7 +2813,7 @@
                             }
                         }
                     }
-
+                    
                     successCount++;
                 } catch (error) {
                     console.error(`❌ Error processing ${file.name}:`, error);
@@ -2909,11 +2821,6 @@
                     errors.push(`${file.name}: ${error.message}`);
                 }
             }
-
-
-
-            // Hide Progress
-            window.app.hideProgress();
 
             btn.disabled = false;
             btn.textContent = originalBtnText;
@@ -2930,13 +2837,12 @@
                 }
             }
 
+            let message = `Import terminé:\n✅ ${successCount} réussi(s)`;
             if (errorCount > 0) {
-                let message = `Import terminé avec des erreurs:\n❌ ${errorCount} erreur(s)`;
+                message += `\n❌ ${errorCount} erreur(s)`;
                 if (errors.length > 0) message += `\n\nDétails:\n${errors.join('\n')}`;
-                alert(message);
-            } else {
-                console.log(`✅ Import terminé: ${successCount} réussi(s)`);
             }
+            alert(message);
         };
 
         // PDF Export Logic
@@ -3138,144 +3044,6 @@
             });
         };
 
-        // Dashboard Cell Editing
-        window.app.editDashboardCell = async (participantId, date, period, currentCode, currentComment, className) => {
-            // Create modal HTML
-            const modalHtml = `
-                <div id="modal-edit-attendance" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
-                    <div style="background: white; padding: 2rem; border-radius: 12px; max-width: 500px; width: 90%;">
-                        <h3 style="margin-top: 0;">Modifier la présence</h3>
-                        <p style="color: #666; margin-bottom: 1.5rem;">
-                            <strong>Date:</strong> ${date}<br>
-                            <strong>Période:</strong> ${period === 'morning' ? 'Matin' : 'Après-midi'}<br>
-                            <strong>Classe:</strong> ${className}
-                        </p>
-                        
-                        <div style="margin-bottom: 1.5rem;">
-                            <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Code de présence</label>
-                            <select id="attendance-code-select" style="width: 100%; padding: 0.75rem; border: 1px solid #ddd; border-radius: 8px; font-size: 1rem;">
-                                <option value="">-- Sélectionner --</option>
-                                <option value="X" ${currentCode === 'X' ? 'selected' : ''}>X - Sur place</option>
-                                <option value="A" ${currentCode === 'A' ? 'selected' : ''}>A - Absence non justifiée</option>
-                                <option value="B" ${currentCode === 'B' ? 'selected' : ''}>B - Maladie sans certificat médical (max 3j)</option>
-                                <option value="C" ${currentCode === 'C' ? 'selected' : ''}>C - Maladie avec certificat médical</option>
-                                <option value="D" ${currentCode === 'D' ? 'selected' : ''}>D - Accident</option>
-                                <option value="E" ${currentCode === 'E' ? 'selected' : ''}>E - Service militaire, protection civile, pompiers</option>
-                                <option value="F" ${currentCode === 'F' ? 'selected' : ''}>F - Maternité</option>
-                                <option value="G" ${currentCode === 'G' ? 'selected' : ''}>G - Autres absences justifiées</option>
-                                <option value="H" ${currentCode === 'H' ? 'selected' : ''}>H - Vacances</option>
-                                <option value="I" ${currentCode === 'I' ? 'selected' : ''}>I - Jours fériés</option>
-                                <option value="J" ${currentCode === 'J' ? 'selected' : ''}>J - Cours interentreprises</option>
-                                <option value="K" ${currentCode === 'K' ? 'selected' : ''}>K - Cours à l'école professionnelle</option>
-                                <option value="L" ${currentCode === 'L' ? 'selected' : ''}>L - Autre formation</option>
-                                <option value="M" ${currentCode === 'M' ? 'selected' : ''}>M - Mesure de marché du travail</option>
-                                <option value="N" ${currentCode === 'N' ? 'selected' : ''}>N - Gain intermédiaire</option>
-                                <option value="O" ${currentCode === 'O' ? 'selected' : ''}>O - Incapacité de travail</option>
-                                <option value="P" ${currentCode === 'P' ? 'selected' : ''}>P - Présence (ancien code)</option>
-                                <option value="Q" ${currentCode === 'Q' ? 'selected' : ''}>Q - Quarantaine</option>
-                                <option value="R" ${currentCode === 'R' ? 'selected' : ''}>R - Raison familiale</option>
-                                <option value="S" ${currentCode === 'S' ? 'selected' : ''}>S - Stage</option>
-                                <option value="T" ${currentCode === 'T' ? 'selected' : ''}>T - Travail temporaire</option>
-                                <option value="U" ${currentCode === 'U' ? 'selected' : ''}>U - Urgence</option>
-                                <option value="V" ${currentCode === 'V' ? 'selected' : ''}>V - Voyage</option>
-                                <option value="W" ${currentCode === 'W' ? 'selected' : ''}>W - Week-end</option>
-                            </select>
-                        </div>
-                        
-                        <div id="comment-field" style="margin-bottom: 1.5rem; display: ${currentCode === 'G' ? 'block' : 'none'};">
-                            <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Commentaire (obligatoire pour code G)</label>
-                            <textarea id="attendance-comment" style="width: 100%; padding: 0.75rem; border: 1px solid #ddd; border-radius: 8px; font-size: 1rem; min-height: 80px; font-family: inherit;" placeholder="Précisez la raison...">${currentComment || ''}</textarea>
-                        </div>
-                        
-                        <div style="display: flex; gap: 1rem; justify-content: flex-end;">
-                            <button onclick="window.app.closeEditAttendanceModal()" class="btn-secondary">Annuler</button>
-                            <button onclick="window.app.saveAttendanceFromDashboard('${participantId}', '${date}', '${period}', '${className}')" class="btn-primary">Enregistrer</button>
-                        </div>
-                    </div>
-                </div>
-            `;
-
-            // Remove existing modal if any
-            const existingModal = document.getElementById('modal-edit-attendance');
-            if (existingModal) existingModal.remove();
-
-            // Add modal to body
-            document.body.insertAdjacentHTML('beforeend', modalHtml);
-
-            // Add event listener to show/hide comment field
-            const codeSelect = document.getElementById('attendance-code-select');
-            const commentField = document.getElementById('comment-field');
-
-            codeSelect.addEventListener('change', (e) => {
-                if (e.target.value === 'G') {
-                    commentField.style.display = 'block';
-                } else {
-                    commentField.style.display = 'none';
-                }
-            });
-        };
-
-        window.app.closeEditAttendanceModal = () => {
-            const modal = document.getElementById('modal-edit-attendance');
-            if (modal) modal.remove();
-        };
-
-        window.app.saveAttendanceFromDashboard = async (participantId, date, period, className) => {
-            const codeSelect = document.getElementById('attendance-code-select');
-            const commentTextarea = document.getElementById('attendance-comment');
-
-            const code = codeSelect.value;
-            const comment = commentTextarea.value.trim();
-
-            // Validation for code G
-            if (code === 'G' && !comment) {
-                alert('Un commentaire est obligatoire pour le code G (Autres absences justifiées).\n\nVeuillez préciser la raison: mariage(3j), naissance(3j), décès proche(3j), funérailles(1j), déménagement(1j), inspection militaire(½-1j), visite médicale, assistance proche malade(3j), entretien ORP, entretien d\'embauche, rendez-vous officiel, essai en entreprise, autre absence autorisée par l\'ORP.');
-                return;
-            }
-
-            try {
-                // Get or create attendance record
-                const allAttendance = await dbService.getAll(STORES.ATTENDANCE);
-                let record = allAttendance.find(r => r.participantId === participantId && r.date === date);
-
-                if (!record) {
-                    record = {
-                        id: `${participantId}_${date}`,
-                        participantId,
-                        date,
-                        morningCode: '',
-                        afternoonCode: '',
-                        comment: ''
-                    };
-                }
-
-                // Update the appropriate period
-                if (period === 'morning') {
-                    record.morningCode = code;
-                } else {
-                    record.afternoonCode = code;
-                }
-
-                // Update comment
-                record.comment = comment;
-
-                // Save to database
-                await attendanceService.saveAttendance([record]);
-
-                // Close modal
-                window.app.closeEditAttendanceModal();
-
-                // Refresh dashboard
-                renderDashboard();
-
-                console.log('✅ Présence mise à jour depuis le tableau de bord');
-            } catch (error) {
-                console.error('❌ Erreur lors de la sauvegarde:', error);
-                alert('Erreur lors de la sauvegarde de la présence');
-            }
-        };
-
-
         window.app.resolveDateSelection = (result) => {
             document.getElementById('modal-date-selection').style.display = 'none';
             if (window.app.dateSelectionResolve) {
@@ -3326,121 +3094,7 @@
             }
         };
 
-        window.app.lastSelectedSignatureId = ''; // Global state for signature persistence
-
-        const _originalOpenModal = (id) => document.getElementById(id).style.display = 'flex';
-        window.app.openModal = async (id) => {
-            // Intercept signature modal opening to restore selection
-            if (id === 'modal-date-selection') {
-                const signatureSelect = document.getElementById('select-signature');
-                if (signatureSelect && window.dbService) {
-                    try {
-                        const signatures = await dbService.getAll('signatures');
-                        signatureSelect.innerHTML = '<option value="">Aucune signature</option>';
-                        signatures.forEach(sig => {
-                            const opt = document.createElement('option');
-                            opt.value = sig.id;
-                            opt.textContent = sig.name;
-                            if (window.app.lastSelectedSignatureId && sig.id === window.app.lastSelectedSignatureId) {
-                                opt.selected = true;
-                            }
-                            signatureSelect.appendChild(opt);
-                        });
-                        if (window.app.lastSelectedSignatureId) {
-                            signatureSelect.value = window.app.lastSelectedSignatureId;
-                        }
-                    } catch (e) { console.error('Error loading signatures in modal', e); }
-                }
-            }
-            _originalOpenModal(id);
-        };
-
-        // Capture signature selection on confirm button click
-        document.addEventListener('DOMContentLoaded', () => {
-            const confirmBtn = document.querySelector('#modal-date-selection button.btn-primary');
-            if (confirmBtn) {
-                confirmBtn.addEventListener('click', () => {
-                    const select = document.getElementById('select-signature');
-                    if (select) {
-                        window.app.lastSelectedSignatureId = select.value;
-                        console.log('💾 Signature sélectionnée mémorisée:', select.value);
-                    }
-                });
-            }
-        });
-
-        // Override deleteParticipant to ensure class cleanup
-        window.app.deleteParticipant = async (id) => {
-            if (!confirm('Êtes-vous sûr de vouloir supprimer ce participant ?')) return;
-
-            try {
-                await participantService.deleteParticipant(id);
-
-                // Clean from classes
-                if (window.classService) {
-                    const allClasses = await classService.getAllClasses();
-                    for (const c of allClasses) {
-                        if (c.participantIds && c.participantIds.includes(id)) {
-                            c.participantIds = c.participantIds.filter(pid => pid !== id);
-                            await classService.updateClass(c);
-                            console.log(`Removed ${id} from class ${c.id}`);
-                        }
-                    }
-                }
-
-                loadParticipantsView();
-                const dashboardEl = document.getElementById('dashboard');
-                if (dashboardEl && dashboardEl.style.display !== 'none') {
-                    renderDashboard();
-                }
-            } catch (e) {
-                console.error('Error deleting participant:', e);
-                alert('Erreur lors de la suppression.');
-            }
-        };
-
-        // FIX: Signature Persistence via Observer & Interception
-        // 1. Intercept resolution to save selection
-        const _originalResolveDateSelection = window.app.resolveDateSelection;
-        window.app.resolveDateSelection = (data) => {
-            if (data && data.signatureId) {
-                window.app.lastSelectedSignatureId = data.signatureId;
-                console.log('💾 Signature mémorisée (interception):', data.signatureId);
-            }
-            if (_originalResolveDateSelection) _originalResolveDateSelection(data);
-        };
-
-        // 2. Detect Modal Opening to Restore Selection
-        const _sigModal = document.getElementById('modal-date-selection');
-        if (_sigModal) {
-            const _observer = new MutationObserver(async (mutations) => {
-                for (const m of mutations) {
-                    if (m.attributeName === 'style' && _sigModal.style.display && _sigModal.style.display !== 'none') {
-                        console.log('👀 Modal signature ouvert -> Restauration...');
-                        const select = document.getElementById('select-signature');
-                        if (select && window.app.lastSelectedSignatureId) {
-                            try {
-                                // Ensure options are populated if needed
-                                if (select.options.length <= 1) {
-                                    const signatures = await dbService.getAll('signatures');
-                                    select.innerHTML = '<option value="">Aucune signature</option>';
-                                    signatures.forEach(sig => {
-                                        const opt = document.createElement('option');
-                                        opt.value = sig.id;
-                                        opt.textContent = sig.name;
-                                        select.appendChild(opt);
-                                    });
-                                }
-                                select.value = window.app.lastSelectedSignatureId;
-                                console.log('✅ Signature restaurée:', window.app.lastSelectedSignatureId);
-                            } catch (e) { console.error(e); }
-                        }
-                    }
-                }
-            });
-            _observer.observe(_sigModal, { attributes: true });
-        }
-
+        window.app.openModal = (id) => document.getElementById(id).style.display = 'flex';
 
         // Batch PDF Export
         window.app.exportSelectedParticipantsPDF = async () => {
@@ -3695,38 +3349,21 @@
                 const missingPdfNames = [];
                 const generationErrors = [];
 
-                console.log('🏁 Démarrage export PDF avec SignatureID:', signatureId);
-
-                // Start Progress
-                window.app.showProgress('Génération des rapports...');
-
-                let progressIndex = 0;
-
                 for (const p of targetParticipants) {
-                    // Update progress
-                    progressIndex++;
-                    window.app.updateProgress(progressIndex, targetParticipants.length, `${p.firstName} ${p.lastName}`);
-
                     // Use originalPdf if available, otherwise use cached template
                     let templateToUse = null;
 
                     if (p.originalPdf && p.originalPdf.byteLength > 0) {
                         if (p.originalPdf instanceof ArrayBuffer || ArrayBuffer.isView(p.originalPdf)) {
-                            // Create a REAL fresh copy by loading and saving the PDF
-                            // This ensures no data is shared between iterations
-                            const tempDoc = await PDFLib.PDFDocument.load(p.originalPdf);
-                            templateToUse = await tempDoc.save();
+                            templateToUse = p.originalPdf;
                         } else {
-                            console.error(`❌ PDF corrompu pour ${p.firstName} ${p.lastName}`);
                             generationErrors.push(`${p.firstName} ${p.lastName}: Données PDF corrompues`);
                             continue;
                         }
                     } else if (cachedTemplate) {
-                        // Create a REAL fresh copy of the cached template
-                        const tempDoc = await PDFLib.PDFDocument.load(cachedTemplate);
-                        templateToUse = await tempDoc.save();
+                        templateToUse = cachedTemplate;
                     } else {
-                        console.warn(`❌ Pas de template pour ${p.firstName} ${p.lastName}`);
+                        console.warn(`No template for ${p.firstName} ${p.lastName}`);
                         missingPdfNames.push(`${p.firstName} ${p.lastName}`);
                         missingPdfCount++;
                         continue;
@@ -3743,13 +3380,8 @@
                         const copiedPages = await mergedPdf.copyPages(filledPdf, filledPdf.getPageIndices());
                         copiedPages.forEach((page) => mergedPdf.addPage(page));
                         processedCount++;
-
-                        // Ajouter un délai de 100ms entre chaque PDF pour laisser le temps à l'image de se charger
-                        if (processedCount < targetParticipants.length) {
-                            await new Promise(resolve => setTimeout(resolve, 100));
-                        }
                     } catch (err) {
-                        console.error(`❌ Erreur pour ${p.lastName}:`, err);
+                        console.error(`Error processing ${p.lastName}:`, err);
                         generationErrors.push(`${p.firstName} ${p.lastName}: ${err.message}`);
                     }
                 }
@@ -3762,9 +3394,6 @@
                     return;
                 }
 
-                // Hide Progress
-                window.app.hideProgress();
-
                 const mergedBytes = await mergedPdf.save();
                 const blob = new Blob([mergedBytes], { type: 'application/pdf' });
                 const url = URL.createObjectURL(blob);
@@ -3772,7 +3401,6 @@
                 if (!printWindow) alert('Le rapport a été généré mais le popup a été bloqué.');
 
             } catch (error) {
-                window.app.hideProgress();
                 console.error('Report generation error', error);
                 alert('Erreur: ' + error.message);
             }
@@ -5134,42 +4762,6 @@
         };
     </script>
 
-    <!-- Modal Progress Bar -->
-    <div id="modal-progress" class="modal" style="display: none; z-index: 9999; background: rgba(0,0,0,0.7);">
-        <div
-            style="text-align: center; max-width: 400px; padding: 2.5rem; background: white; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.2);">
-            <h3 id="progress-title" style="margin-bottom: 1.5rem; font-size: 1.3rem; color: #333;">Traitement en
-                cours...</h3>
-            <div
-                style="background: #e9ecef; border-radius: 20px; height: 12px; width: 100%; overflow: hidden; margin-bottom: 0.8rem; box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);">
-                <div id="progress-bar-fill"
-                    style="background: linear-gradient(90deg, #4CAF50, #81C784); height: 100%; width: 0%; transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);">
-                </div>
-            </div>
-            <p id="progress-text" style="color: #666; font-size: 0.95rem; font-weight: 500;">0%</p>
-        </div>
-    </div>
-
-    <script>
-        // Progress Bar Helpers
-        window.app.showProgress = (title) => {
-            const modal = document.getElementById('modal-progress');
-            document.getElementById('progress-title').textContent = title || 'Veuillez patienter...';
-            document.getElementById('progress-bar-fill').style.width = '0%';
-            document.getElementById('progress-text').textContent = '0%';
-            modal.style.display = 'flex';
-        };
-
-        window.app.updateProgress = (current, total, message) => {
-            const percent = total > 0 ? Math.round((current / total) * 100) : 0;
-            document.getElementById('progress-bar-fill').style.width = `${percent}%`;
-            document.getElementById('progress-text').textContent = message ? `${percent}% - ${message}` : `${percent}%`;
-        };
-
-        window.app.hideProgress = () => {
-            document.getElementById('modal-progress').style.display = 'none';
-        };
-    </script>
 </body>
 
 </html>

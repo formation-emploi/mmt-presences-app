@@ -6,7 +6,7 @@
 class SharePointService {
     constructor() {
         // URL de votre site SharePoint
-        this.siteUrl = 'https://formationemploi.sharepoint.com/sites/TestapplicationMMT';
+        this.siteUrl = 'https://formationemploi.sharepoint.com/sites/applicationMMT';
 
         // Noms des listes SharePoint
         this.lists = {
