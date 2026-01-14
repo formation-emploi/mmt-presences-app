@@ -583,10 +583,6 @@
             <a href="#classes" class="nav-link">Classes</a>
         </div>
         <div style="display: flex; gap: 0.5rem; align-items: center;">
-            <div id="db-status-badge"
-                style="padding: 0.4rem 0.8rem; border-radius: 20px; font-size: 0.8rem; font-weight: bold; background: #eee; color: #666; display: flex; align-items: center; gap: 5px;">
-                <span style="font-size: 1.2em;">⚪</span> Initialisation...
-            </div>
             <span id="user-email" style="color: #666; font-size: 0.9rem; margin-right: 0.5rem;"></span>
             <button onclick="window.firebaseLogout()" class="btn-secondary btn-sm"
                 style="background: #dc2626; color: white; border: none;" title="Se déconnecter">
@@ -1686,6 +1682,23 @@
                         console.error('❌ Erreur chargement Firestore:', error);
                         // Continue avec localStorage
                     }
+
+                    // Charger les signatures depuis la collection partagée
+                    try {
+                        const { getDoc, doc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+                        const signaturesRef = doc(window.firebaseDb, 'shared', 'signatures');
+                        const signaturesSnap = await getDoc(signaturesRef);
+
+                        if (signaturesSnap.exists()) {
+                            const signaturesData = signaturesSnap.data();
+                            this.data.signatures = signaturesData.signatures || [];
+                            console.log('✅ Signatures chargées depuis Firestore');
+                            // Sauvegarder aussi en localStorage
+                            localStorage.setItem(this.storageKey, JSON.stringify(this.data));
+                        }
+                    } catch (error) {
+                        console.error('❌ Erreur chargement signatures Firestore:', error);
+                    }
                 }
 
                 // 3. Charger depuis fichier JSON (ancien système)
@@ -1780,6 +1793,8 @@
                 if (window.firebaseDb && window.currentUser) {
                     try {
                         const { setDoc, doc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+
+                        // Sauvegarder les données utilisateur
                         const userDataRef = doc(window.firebaseDb, 'users', window.currentUser.uid);
                         await setDoc(userDataRef, {
                             participants: this.data.participants || [],
@@ -1787,6 +1802,17 @@
                             attendances: this.data.attendances || [],
                             lastUpdated: new Date().toISOString()
                         });
+
+                        // Sauvegarder les signatures dans une collection partagée
+                        if (this.data.signatures && this.data.signatures.length > 0) {
+                            const signaturesRef = doc(window.firebaseDb, 'shared', 'signatures');
+                            await setDoc(signaturesRef, {
+                                signatures: this.data.signatures,
+                                lastUpdated: new Date().toISOString()
+                            });
+                            console.log('✅ Signatures sauvegardées dans Firestore');
+                        }
+
                         console.log('✅ Données sauvegardées dans Firestore');
                     } catch (error) {
                         console.error('❌ Erreur Firestore:', error);
@@ -2417,11 +2443,16 @@
                                 cellContentA += interruptionIcon;
                             }
 
-                            rowMatin += `<td class="${weekendClass} ${getCellClass(mCode, isScheduledAm)} ${tooltipClass}" ${tooltipAttr} style="${lastDayStyle}" ${lastDayTooltip}>${cellContentM}</td>`;
+                            // Add onclick for editable cells
+                            const onclickM = isScheduledAm ? `onclick="window.app.editDashboardCell('${p.id}', '${dateStr}', 'morning', '${mCode}', '${comment.replace(/'/g, "\\'")}', '${className}')"` : '';
+                            const onclickA = isScheduledPm ? `onclick="window.app.editDashboardCell('${p.id}', '${dateStr}', 'afternoon', '${aCode}', '${comment.replace(/'/g, "\\'")}', '${className}')"` : '';
+                            const cursorStyle = (isScheduledAm || isScheduledPm) ? 'cursor: pointer;' : '';
+
+                            rowMatin += `<td class="${weekendClass} ${getCellClass(mCode, isScheduledAm)} ${tooltipClass}" ${tooltipAttr} style="${lastDayStyle} ${cursorStyle}" ${lastDayTooltip} ${onclickM}>${cellContentM}</td>`;
 
                             const tooltipClassAm = (aCode === 'G' && comment) ? 'code-g-tooltip' : '';
                             const tooltipAttrAm = (aCode === 'G' && comment) ? `data-comment="${comment}"` : '';
-                            rowAprem += `<td class="${weekendClass} ${getCellClass(aCode, isScheduledPm)} ${tooltipClassAm}" ${tooltipAttrAm} style="border-bottom: 2px solid #e0e0e0; ${lastDayStyle}" ${lastDayTooltip}>${cellContentA}</td>`;
+                            rowAprem += `<td class="${weekendClass} ${getCellClass(aCode, isScheduledPm)} ${tooltipClassAm}" ${tooltipAttrAm} style="border-bottom: 2px solid #e0e0e0; ${lastDayStyle} ${cursorStyle}" ${lastDayTooltip} ${onclickA}>${cellContentA}</td>`;
                         }
 
                         tableHtml += `<tr>${rowMatin}</tr><tr>${rowAprem}</tr>`;
@@ -2758,6 +2789,36 @@
                     } else {
                         await participantService.addParticipant(data);
                     }
+
+                    // Création automatique de la classe et ajout du participant
+                    if (data.courseType) {
+                        const allClasses = await classService.getAllClasses();
+                        let targetClass = allClasses.find(c => c.name === data.courseType);
+
+                        const participantId = exists ? exists.id : data.id;
+
+                        if (!targetClass) {
+                            // Créer la classe si elle n'existe pas
+                            const newClass = {
+                                name: data.courseType,
+                                participantIds: [participantId],
+                                createdAt: new Date().toISOString()
+                            };
+                            await classService.addClass(newClass);
+                            console.log(`✅ Classe créée automatiquement: ${data.courseType}`);
+                        } else {
+                            // Ajouter le participant à la classe existante s'il n'y est pas déjà
+                            if (!targetClass.participantIds) {
+                                targetClass.participantIds = [];
+                            }
+                            if (!targetClass.participantIds.includes(participantId)) {
+                                targetClass.participantIds.push(participantId);
+                                await classService.updateClass(targetClass);
+                                console.log(`✅ Participant ajouté à la classe: ${data.courseType}`);
+                            }
+                        }
+                    }
+
                     successCount++;
                 } catch (error) {
                     console.error(`❌ Error processing ${file.name}:`, error);
@@ -2987,6 +3048,144 @@
                 document.getElementById('modal-date-selection').style.display = 'flex';
             });
         };
+
+        // Dashboard Cell Editing
+        window.app.editDashboardCell = async (participantId, date, period, currentCode, currentComment, className) => {
+            // Create modal HTML
+            const modalHtml = `
+                <div id="modal-edit-attendance" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+                    <div style="background: white; padding: 2rem; border-radius: 12px; max-width: 500px; width: 90%;">
+                        <h3 style="margin-top: 0;">Modifier la présence</h3>
+                        <p style="color: #666; margin-bottom: 1.5rem;">
+                            <strong>Date:</strong> ${date}<br>
+                            <strong>Période:</strong> ${period === 'morning' ? 'Matin' : 'Après-midi'}<br>
+                            <strong>Classe:</strong> ${className}
+                        </p>
+                        
+                        <div style="margin-bottom: 1.5rem;">
+                            <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Code de présence</label>
+                            <select id="attendance-code-select" style="width: 100%; padding: 0.75rem; border: 1px solid #ddd; border-radius: 8px; font-size: 1rem;">
+                                <option value="">-- Sélectionner --</option>
+                                <option value="X" ${currentCode === 'X' ? 'selected' : ''}>X - Sur place</option>
+                                <option value="A" ${currentCode === 'A' ? 'selected' : ''}>A - Absence non justifiée</option>
+                                <option value="B" ${currentCode === 'B' ? 'selected' : ''}>B - Maladie sans certificat médical (max 3j)</option>
+                                <option value="C" ${currentCode === 'C' ? 'selected' : ''}>C - Maladie avec certificat médical</option>
+                                <option value="D" ${currentCode === 'D' ? 'selected' : ''}>D - Accident</option>
+                                <option value="E" ${currentCode === 'E' ? 'selected' : ''}>E - Service militaire, protection civile, pompiers</option>
+                                <option value="F" ${currentCode === 'F' ? 'selected' : ''}>F - Maternité</option>
+                                <option value="G" ${currentCode === 'G' ? 'selected' : ''}>G - Autres absences justifiées</option>
+                                <option value="H" ${currentCode === 'H' ? 'selected' : ''}>H - Vacances</option>
+                                <option value="I" ${currentCode === 'I' ? 'selected' : ''}>I - Jours fériés</option>
+                                <option value="J" ${currentCode === 'J' ? 'selected' : ''}>J - Cours interentreprises</option>
+                                <option value="K" ${currentCode === 'K' ? 'selected' : ''}>K - Cours à l'école professionnelle</option>
+                                <option value="L" ${currentCode === 'L' ? 'selected' : ''}>L - Autre formation</option>
+                                <option value="M" ${currentCode === 'M' ? 'selected' : ''}>M - Mesure de marché du travail</option>
+                                <option value="N" ${currentCode === 'N' ? 'selected' : ''}>N - Gain intermédiaire</option>
+                                <option value="O" ${currentCode === 'O' ? 'selected' : ''}>O - Incapacité de travail</option>
+                                <option value="P" ${currentCode === 'P' ? 'selected' : ''}>P - Présence (ancien code)</option>
+                                <option value="Q" ${currentCode === 'Q' ? 'selected' : ''}>Q - Quarantaine</option>
+                                <option value="R" ${currentCode === 'R' ? 'selected' : ''}>R - Raison familiale</option>
+                                <option value="S" ${currentCode === 'S' ? 'selected' : ''}>S - Stage</option>
+                                <option value="T" ${currentCode === 'T' ? 'selected' : ''}>T - Travail temporaire</option>
+                                <option value="U" ${currentCode === 'U' ? 'selected' : ''}>U - Urgence</option>
+                                <option value="V" ${currentCode === 'V' ? 'selected' : ''}>V - Voyage</option>
+                                <option value="W" ${currentCode === 'W' ? 'selected' : ''}>W - Week-end</option>
+                            </select>
+                        </div>
+                        
+                        <div id="comment-field" style="margin-bottom: 1.5rem; display: ${currentCode === 'G' ? 'block' : 'none'};">
+                            <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Commentaire (obligatoire pour code G)</label>
+                            <textarea id="attendance-comment" style="width: 100%; padding: 0.75rem; border: 1px solid #ddd; border-radius: 8px; font-size: 1rem; min-height: 80px; font-family: inherit;" placeholder="Précisez la raison...">${currentComment || ''}</textarea>
+                        </div>
+                        
+                        <div style="display: flex; gap: 1rem; justify-content: flex-end;">
+                            <button onclick="window.app.closeEditAttendanceModal()" class="btn-secondary">Annuler</button>
+                            <button onclick="window.app.saveAttendanceFromDashboard('${participantId}', '${date}', '${period}', '${className}')" class="btn-primary">Enregistrer</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Remove existing modal if any
+            const existingModal = document.getElementById('modal-edit-attendance');
+            if (existingModal) existingModal.remove();
+
+            // Add modal to body
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+            // Add event listener to show/hide comment field
+            const codeSelect = document.getElementById('attendance-code-select');
+            const commentField = document.getElementById('comment-field');
+
+            codeSelect.addEventListener('change', (e) => {
+                if (e.target.value === 'G') {
+                    commentField.style.display = 'block';
+                } else {
+                    commentField.style.display = 'none';
+                }
+            });
+        };
+
+        window.app.closeEditAttendanceModal = () => {
+            const modal = document.getElementById('modal-edit-attendance');
+            if (modal) modal.remove();
+        };
+
+        window.app.saveAttendanceFromDashboard = async (participantId, date, period, className) => {
+            const codeSelect = document.getElementById('attendance-code-select');
+            const commentTextarea = document.getElementById('attendance-comment');
+
+            const code = codeSelect.value;
+            const comment = commentTextarea.value.trim();
+
+            // Validation for code G
+            if (code === 'G' && !comment) {
+                alert('Un commentaire est obligatoire pour le code G (Autres absences justifiées).\n\nVeuillez préciser la raison: mariage(3j), naissance(3j), décès proche(3j), funérailles(1j), déménagement(1j), inspection militaire(½-1j), visite médicale, assistance proche malade(3j), entretien ORP, entretien d\'embauche, rendez-vous officiel, essai en entreprise, autre absence autorisée par l\'ORP.');
+                return;
+            }
+
+            try {
+                // Get or create attendance record
+                const allAttendance = await dbService.getAll(STORES.ATTENDANCE);
+                let record = allAttendance.find(r => r.participantId === participantId && r.date === date);
+
+                if (!record) {
+                    record = {
+                        id: `${participantId}_${date}`,
+                        participantId,
+                        date,
+                        morningCode: '',
+                        afternoonCode: '',
+                        comment: ''
+                    };
+                }
+
+                // Update the appropriate period
+                if (period === 'morning') {
+                    record.morningCode = code;
+                } else {
+                    record.afternoonCode = code;
+                }
+
+                // Update comment
+                record.comment = comment;
+
+                // Save to database
+                await attendanceService.saveAttendance([record]);
+
+                // Close modal
+                window.app.closeEditAttendanceModal();
+
+                // Refresh dashboard
+                renderDashboard();
+
+                console.log('✅ Présence mise à jour depuis le tableau de bord');
+            } catch (error) {
+                console.error('❌ Erreur lors de la sauvegarde:', error);
+                alert('Erreur lors de la sauvegarde de la présence');
+            }
+        };
+
 
         window.app.resolveDateSelection = (result) => {
             document.getElementById('modal-date-selection').style.display = 'none';
@@ -3294,20 +3493,27 @@
                 const generationErrors = [];
 
                 for (const p of targetParticipants) {
+                    console.log(`🔍 Traitement de: ${p.firstName} ${p.lastName}`);
+
                     // Use originalPdf if available, otherwise use cached template
                     let templateToUse = null;
 
                     if (p.originalPdf && p.originalPdf.byteLength > 0) {
                         if (p.originalPdf instanceof ArrayBuffer || ArrayBuffer.isView(p.originalPdf)) {
-                            templateToUse = p.originalPdf;
+                            // Create a fresh copy of the template to avoid data reuse
+                            templateToUse = p.originalPdf.slice(0);
+                            console.log(`✅ Utilisation du PDF original (${p.originalPdf.byteLength} bytes)`);
                         } else {
+                            console.error(`❌ PDF corrompu pour ${p.firstName} ${p.lastName}`);
                             generationErrors.push(`${p.firstName} ${p.lastName}: Données PDF corrompues`);
                             continue;
                         }
                     } else if (cachedTemplate) {
-                        templateToUse = cachedTemplate;
+                        // Create a fresh copy of the cached template
+                        templateToUse = cachedTemplate.slice(0);
+                        console.log(`⚠️ Utilisation du template global (pas de PDF original)`);
                     } else {
-                        console.warn(`No template for ${p.firstName} ${p.lastName}`);
+                        console.warn(`❌ Pas de template pour ${p.firstName} ${p.lastName}`);
                         missingPdfNames.push(`${p.firstName} ${p.lastName}`);
                         missingPdfCount++;
                         continue;
@@ -3324,8 +3530,14 @@
                         const copiedPages = await mergedPdf.copyPages(filledPdf, filledPdf.getPageIndices());
                         copiedPages.forEach((page) => mergedPdf.addPage(page));
                         processedCount++;
+                        console.log(`✅ PDF généré pour ${p.firstName} ${p.lastName}`);
+
+                        // Ajouter un délai de 100ms entre chaque PDF pour laisser le temps à l'image de se charger
+                        if (processedCount < targetParticipants.length) {
+                            await new Promise(resolve => setTimeout(resolve, 100));
+                        }
                     } catch (err) {
-                        console.error(`Error processing ${p.lastName}:`, err);
+                        console.error(`❌ Erreur pour ${p.lastName}:`, err);
                         generationErrors.push(`${p.firstName} ${p.lastName}: ${err.message}`);
                     }
                 }
