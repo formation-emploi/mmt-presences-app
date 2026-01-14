@@ -1269,11 +1269,15 @@
 
                 // Position 2: Field 5.25 position - now for signature image
                 if (signatureId) {
+                    console.log('🔍 DEBUG: Tentative de chargement de la signature:', signatureId);
                     try {
                         const signatures = await dbService.getAll('signatures');
+                        console.log('🔍 DEBUG: Signatures trouvées:', signatures.length, signatures.map(s => s.id));
                         const signature = signatures.find(s => s.id === signatureId);
+                        console.log('🔍 DEBUG: Signature sélectionnée:', signature ? 'Trouvée' : 'NON TROUVÉE');
 
                         if (signature && signature.imageData) {
+                            console.log('🔍 DEBUG: ImageData présent, taille:', signature.imageData.length);
                             // Convert Base64 to bytes
                             const imageBytes = Uint8Array.from(atob(signature.imageData.split(',')[1]), c => c.charCodeAt(0));
 
@@ -1281,8 +1285,10 @@
                             let image;
                             if (signature.imageData.includes('image/png')) {
                                 image = await pdfDoc.embedPng(imageBytes);
+                                console.log('✅ DEBUG: Image PNG embedée');
                             } else {
                                 image = await pdfDoc.embedJpg(imageBytes);
+                                console.log('✅ DEBUG: Image JPG embedée');
                             }
 
                             // Use field 5.25 by getting its position
