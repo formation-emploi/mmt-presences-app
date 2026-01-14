@@ -1269,14 +1269,11 @@
 
                 // Position 2: Field 5.25 position - now for signature image
                 if (signatureId) {
-                    console.log('🔍 Signature ID fourni:', signatureId);
                     try {
                         const signatures = await dbService.getAll('signatures');
-                        console.log('📋 Signatures disponibles:', signatures.length);
                         const signature = signatures.find(s => s.id === signatureId);
 
                         if (signature && signature.imageData) {
-                            console.log('✅ Signature trouvée, chargement de l\'image...');
                             // Convert Base64 to bytes
                             const imageBytes = Uint8Array.from(atob(signature.imageData.split(',')[1]), c => c.charCodeAt(0));
 
@@ -1284,24 +1281,19 @@
                             let image;
                             if (signature.imageData.includes('image/png')) {
                                 image = await pdfDoc.embedPng(imageBytes);
-                                console.log('✅ Image PNG embedée');
                             } else {
                                 image = await pdfDoc.embedJpg(imageBytes);
-                                console.log('✅ Image JPG embedée');
                             }
 
                             // Use field 5.25 by getting its position
                             try {
                                 const field = form.getTextField('5.25');
-                                console.log('✅ Field 5.25 found');
 
                                 // Get field position and dimensions
                                 const widgets = field.acroField.getWidgets();
                                 if (widgets.length > 0) {
                                     const widget = widgets[0];
                                     const rect = widget.getRectangle();
-
-                                    console.log('Field 5.25 position:', { x: rect.x, y: rect.y, width: rect.width, height: rect.height });
 
                                     const signatureWidth = rect.width;
                                     const signatureHeight = rect.height;
@@ -1317,7 +1309,6 @@
                                     for (let i = 0; i < pages.length; i++) {
                                         if (pages[i].ref === pageRef) {
                                             targetPage = pages[i];
-                                            console.log(`Field 5.25 is on page ${i + 1}`);
                                             break;
                                         }
                                     }
@@ -1352,15 +1343,10 @@
                 }
 
                 // Supprimer la page 3 si elle existe (nouvelle version du formulaire)
-                console.log('🔍 Vérification du nombre de pages...');
                 try {
                     const pageCount = pdfDoc.getPageCount();
-                    console.log(`📄 Le PDF contient ${pageCount} pages`);
                     if (pageCount >= 3) {
                         pdfDoc.removePage(2); // Index 2 = page 3
-                        console.log('✅ Page 3 supprimée du PDF');
-                    } else {
-                        console.log('ℹ️ Le PDF contient moins de 3 pages, rien à supprimer');
                     }
                 } catch (e) {
                     console.warn('⚠️ Impossible de supprimer la page 3:', e);
@@ -3493,8 +3479,6 @@
                 const generationErrors = [];
 
                 for (const p of targetParticipants) {
-                    console.log(`🔍 Traitement de: ${p.firstName} ${p.lastName}`);
-
                     // Use originalPdf if available, otherwise use cached template
                     let templateToUse = null;
 
@@ -3502,7 +3486,6 @@
                         if (p.originalPdf instanceof ArrayBuffer || ArrayBuffer.isView(p.originalPdf)) {
                             // Create a fresh copy of the template to avoid data reuse
                             templateToUse = p.originalPdf.slice(0);
-                            console.log(`✅ Utilisation du PDF original (${p.originalPdf.byteLength} bytes)`);
                         } else {
                             console.error(`❌ PDF corrompu pour ${p.firstName} ${p.lastName}`);
                             generationErrors.push(`${p.firstName} ${p.lastName}: Données PDF corrompues`);
@@ -3511,7 +3494,6 @@
                     } else if (cachedTemplate) {
                         // Create a fresh copy of the cached template
                         templateToUse = cachedTemplate.slice(0);
-                        console.log(`⚠️ Utilisation du template global (pas de PDF original)`);
                     } else {
                         console.warn(`❌ Pas de template pour ${p.firstName} ${p.lastName}`);
                         missingPdfNames.push(`${p.firstName} ${p.lastName}`);
@@ -3530,7 +3512,6 @@
                         const copiedPages = await mergedPdf.copyPages(filledPdf, filledPdf.getPageIndices());
                         copiedPages.forEach((page) => mergedPdf.addPage(page));
                         processedCount++;
-                        console.log(`✅ PDF généré pour ${p.firstName} ${p.lastName}`);
 
                         // Ajouter un délai de 100ms entre chaque PDF pour laisser le temps à l'image de se charger
                         if (processedCount < targetParticipants.length) {
