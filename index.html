@@ -3490,16 +3490,19 @@
 
                     if (p.originalPdf && p.originalPdf.byteLength > 0) {
                         if (p.originalPdf instanceof ArrayBuffer || ArrayBuffer.isView(p.originalPdf)) {
-                            // Create a fresh copy of the template to avoid data reuse
-                            templateToUse = p.originalPdf.slice(0);
+                            // Create a REAL fresh copy by loading and saving the PDF
+                            // This ensures no data is shared between iterations
+                            const tempDoc = await PDFLib.PDFDocument.load(p.originalPdf);
+                            templateToUse = await tempDoc.save();
                         } else {
                             console.error(`❌ PDF corrompu pour ${p.firstName} ${p.lastName}`);
                             generationErrors.push(`${p.firstName} ${p.lastName}: Données PDF corrompues`);
                             continue;
                         }
                     } else if (cachedTemplate) {
-                        // Create a fresh copy of the cached template
-                        templateToUse = cachedTemplate.slice(0);
+                        // Create a REAL fresh copy of the cached template
+                        const tempDoc = await PDFLib.PDFDocument.load(cachedTemplate);
+                        templateToUse = await tempDoc.save();
                     } else {
                         console.warn(`❌ Pas de template pour ${p.firstName} ${p.lastName}`);
                         missingPdfNames.push(`${p.firstName} ${p.lastName}`);
