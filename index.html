@@ -1098,16 +1098,21 @@
 
         class AttendanceService {
             async saveAttendance(attendanceRecords) {
-                const promises = attendanceRecords.map(record => {
+                const items = attendanceRecords.map(record => {
                     const id = `${record.classId}_${record.date}_${record.participantId}`;
-                    const item = { ...record, id };
-                    return dbService.update(STORES.ATTENDANCE, item);
+                    return { ...record, id };
                 });
+
+                if (dbService.saveAttendances) return await dbService.saveAttendances(items);
+
+                const promises = items.map(item => dbService.update(STORES.ATTENDANCE, item));
                 return Promise.all(promises);
             }
 
             async getAttendance(classId, date) {
-                const all = await dbService.getAll(STORES.ATTENDANCE);
+                let all = [];
+                if (dbService.getAttendances) all = await dbService.getAttendances();
+                else all = await dbService.getAll(STORES.ATTENDANCE);
                 return all.filter(r => r.classId === classId && r.date === date);
             }
 
@@ -1569,7 +1574,7 @@
         };
 
         // Database Service (SharePoint/JSON Mode with LocalStorage Fallback)
-        const dbService = {
+        const jsonDbService = {
             data: {
                 participants: [],
                 classes: [],
@@ -1989,8 +1994,26 @@
                 } else {
                     await this.save();
                 }
+            },
+
+            // Adapter Interface Compliance
+            async getParticipants() { return this.getAll(STORES.PARTICIPANTS); },
+            async saveParticipant(p) { return p.id ? this.update(STORES.PARTICIPANTS, p) : this.add(STORES.PARTICIPANTS, p); },
+            async deleteParticipant(id) { return this.delete(STORES.PARTICIPANTS, id); },
+            async getClasses() { return this.getAll(STORES.CLASSES); },
+            async saveClass(c) { return c.id ? this.update(STORES.CLASSES, c) : this.add(STORES.CLASSES, c); },
+            async deleteClass(id) { return this.delete(STORES.CLASSES, id); },
+            async getAttendances() { return this.getAll(STORES.ATTENDANCE); },
+            async saveAttendances(list) {
+                for (const item of list) {
+                    await this.update(STORES.ATTENDANCE, item);
+                }
             }
         };
+
+        // Initialize default dbService
+        var dbService = jsonDbService;
+        window.dbService = dbService;
 
         // --- INSTALLER LOGIC (External) ---
         window.app.installSharePointLists = async function () {
@@ -2059,27 +2082,28 @@
         // Participant Service
         const participantService = {
             async getAllParticipants() {
+                if (dbService.getParticipants) return await dbService.getParticipants();
                 return await dbService.getAll(STORES.PARTICIPANTS);
             },
 
             async addParticipant(participant) {
-                if (!participant.id) {
-                    participant.id = crypto.randomUUID();
-                }
+                if (!participant.id) participant.id = crypto.randomUUID();
+                if (dbService.saveParticipant) return await dbService.saveParticipant(participant);
                 return await dbService.add(STORES.PARTICIPANTS, participant);
             },
 
             async updateParticipant(participant) {
-                // Handle both (id, data) and (data) signatures
                 if (arguments.length === 2) {
                     const data = arguments[1];
                     data.id = arguments[0];
-                    return await dbService.update(STORES.PARTICIPANTS, data);
+                    participant = data;
                 }
+                if (dbService.saveParticipant) return await dbService.saveParticipant(participant);
                 return await dbService.update(STORES.PARTICIPANTS, participant);
             },
 
             async deleteParticipant(id) {
+                if (dbService.deleteParticipant) return await dbService.deleteParticipant(id);
                 return await dbService.delete(STORES.PARTICIPANTS, id);
             }
         };
@@ -2087,21 +2111,23 @@
         // Class Service
         const classService = {
             async getAllClasses() {
+                if (dbService.getClasses) return await dbService.getClasses();
                 return await dbService.getAll(STORES.CLASSES);
             },
 
             async addClass(cls) {
-                if (!cls.id) {
-                    cls.id = crypto.randomUUID();
-                }
+                if (!cls.id) cls.id = crypto.randomUUID();
+                if (dbService.saveClass) return await dbService.saveClass(cls);
                 return await dbService.add(STORES.CLASSES, cls);
             },
 
             async updateClass(cls) {
+                if (dbService.saveClass) return await dbService.saveClass(cls);
                 return await dbService.update(STORES.CLASSES, cls);
             },
 
             async deleteClass(id) {
+                if (dbService.deleteClass) return await dbService.deleteClass(id);
                 return await dbService.delete(STORES.CLASSES, id);
             },
 
@@ -2115,6 +2141,10 @@
             },
 
             async getClass(id) {
+                if (dbService.getClasses) {
+                    const classes = await dbService.getClasses();
+                    return classes.find(c => c.id === id);
+                }
                 return await dbService.get(STORES.CLASSES, id);
             }
         };
@@ -2125,13 +2155,29 @@
 
         // Initialize App
         // Initialize App
-        document.addEventListener('DOMContentLoaded', () => {
-            dbService.init().then(() => {
+        document.addEventListener('DOMContentLoaded', async () => {
+            // DECISION: Use Firebase if available (via adapter), else JSON
+            if (window.firebaseStorage) {
+                console.log('🔥 Using Firebase Storage Adapter as primary DB');
+                dbService = window.firebaseStorage; // Update local scope var
+                window.dbService = window.firebaseStorage;
+
+                if (window.dbService.init) {
+                    await window.dbService.init().catch(err => console.error('Firebase Init Error:', err));
+                }
                 initApp();
-            }).catch(err => {
-                console.error('Database initialization failed', err);
-                alert('Erreur: Impossible d\'initialiser la base de données.');
-            });
+            } else {
+                console.warn('⚠️ No Firebase Adapter found. Falling back to local JSON/SharePoint mode.');
+                dbService = jsonDbService;
+                window.dbService = jsonDbService;
+
+                dbService.init().then(() => {
+                    initApp();
+                }).catch(err => {
+                    console.error('Database initialization failed', err);
+                    alert('Erreur: Impossible d\'initialiser la base de données.');
+                });
+            }
         });
 
         function initApp() {
@@ -5115,7 +5161,7 @@
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
         import { getAuth, onAuthStateChanged, signOut } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
-        import { getFirestore, collection, doc, getDoc, getDocs, setDoc, deleteDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+        import { getFirestore, collection, doc, getDoc, getDocs, setDoc, deleteDoc, updateDoc, addDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
 
         const firebaseConfig = {
             apiKey: "AIzaSyC9Jp7YGeYxYja5rIRXSdVQFvVMmiMU7Ko",
@@ -5129,6 +5175,128 @@
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
+
+        // --- FIREBASE ADAPTER DEFINITION ---
+        class FirebaseStorageAdapter {
+            constructor() {
+                this.cache = {};
+                this.initialized = false;
+            }
+
+            async init() {
+                if (this.initialized) return;
+                try {
+                    // Load Participants
+                    const participantsSnap = await getDocs(collection(db, 'participants'));
+                    const participants = [];
+                    participantsSnap.forEach(doc => participants.push({ id: doc.id, ...doc.data() }));
+                    this.cache.participants = participants;
+
+                    // Load Classes
+                    const classesSnap = await getDocs(collection(db, 'classes'));
+                    const classes = [];
+                    classesSnap.forEach(doc => classes.push({ id: doc.id, ...doc.data() }));
+                    this.cache.classes = classes;
+
+                    // Load Attendance
+                    const attendancesSnap = await getDocs(collection(db, 'attendances'));
+                    const attendances = [];
+                    attendancesSnap.forEach(doc => attendances.push({ id: doc.id, ...doc.data() }));
+                    this.cache.attendances = attendances;
+
+                    this.initialized = true;
+                    console.log('✅ Firebase cache initialized');
+                } catch (error) {
+                    console.error('❌ Error initializing Firebase cache:', error);
+                    this.loadFromLocalStorage();
+                }
+            }
+
+            loadFromLocalStorage() {
+                this.cache.participants = JSON.parse(localStorage.getItem('participants') || '[]');
+                this.cache.classes = JSON.parse(localStorage.getItem('classes') || '[]');
+                this.cache.attendances = JSON.parse(localStorage.getItem('attendances') || '[]');
+                console.log('⚠️ Loaded from localStorage (fallback)');
+            }
+
+            async getParticipants() { await this.init(); return this.cache.participants || []; }
+
+            async saveParticipant(participant) {
+                await this.init();
+                try {
+                    if (participant.id) {
+                        const docRef = doc(db, 'participants', participant.id);
+                        await setDoc(docRef, participant);
+                        const index = this.cache.participants.findIndex(p => p.id === participant.id);
+                        if (index !== -1) this.cache.participants[index] = participant;
+                        else this.cache.participants.push(participant);
+                    } else {
+                        const docRef = await addDoc(collection(db, 'participants'), participant);
+                        participant.id = docRef.id;
+                        this.cache.participants.push(participant);
+                    }
+                    return participant;
+                } catch (error) { console.error('❌ Error saving participant:', error); throw error; }
+            }
+
+            async deleteParticipant(participantId) {
+                await this.init();
+                try {
+                    await deleteDoc(doc(db, 'participants', participantId));
+                    this.cache.participants = this.cache.participants.filter(p => p.id !== participantId);
+                } catch (error) { console.error('❌ Error deleting participant:', error); throw error; }
+            }
+
+            async getClasses() { await this.init(); return this.cache.classes || []; }
+
+            async saveClass(classItem) {
+                await this.init();
+                try {
+                    if (classItem.id) {
+                        const docRef = doc(db, 'classes', classItem.id);
+                        await setDoc(docRef, classItem);
+                        const index = this.cache.classes.findIndex(c => c.id === classItem.id);
+                        if (index !== -1) this.cache.classes[index] = classItem;
+                        else this.cache.classes.push(classItem);
+                    } else {
+                        const docRef = await addDoc(collection(db, 'classes'), classItem);
+                        classItem.id = docRef.id;
+                        this.cache.classes.push(classItem);
+                    }
+                    return classItem;
+                } catch (error) { console.error('❌ Error saving class:', error); throw error; }
+            }
+
+            async deleteClass(classId) {
+                await this.init();
+                try {
+                    await deleteDoc(doc(db, 'classes', classId));
+                    this.cache.classes = this.cache.classes.filter(c => c.id !== classId);
+                } catch (error) { console.error('❌ Error deleting class:', error); throw error; }
+            }
+
+            async getAttendances() { await this.init(); return this.cache.attendances || []; }
+
+            async saveAttendances(attendances) {
+                await this.init();
+                try {
+                    for (const attendance of attendances) {
+                        if (attendance.id) {
+                            const docRef = doc(db, 'attendances', attendance.id);
+                            await setDoc(docRef, attendance);
+                        } else {
+                            const docRef = await addDoc(collection(db, 'attendances'), attendance);
+                            attendance.id = docRef.id;
+                        }
+                    }
+                    this.cache.attendances = attendances;
+                } catch (error) { console.error('❌ Error saving attendances:', error); throw error; }
+            }
+        }
+
+        // Instantiate Adapter
+        window.firebaseStorage = new FirebaseStorageAdapter();
+        console.log('🔥 Firebase Storage Adapter loaded via Module Script');
 
         // Rendre db accessible globalement
         window.firebaseDb = db;
@@ -5150,13 +5318,20 @@
                 }
 
                 // Recharger les données depuis Firestore maintenant que l'utilisateur est connecté
-                if (window.dbService && window.dbService.loadFromFile) {
+                if (window.dbService) {
                     console.log('🔄 Rechargement des données depuis Firestore...');
-                    window.dbService.loadFromFile().then(() => {
+                    const reloadPromise = window.dbService.loadFromFile
+                        ? window.dbService.loadFromFile()
+                        : (window.dbService.init ? window.dbService.init() : Promise.resolve());
+
+                    reloadPromise.then(() => {
                         console.log('✅ Données rechargées');
                         // Rafraîchir l'affichage si on est sur le dashboard
                         if (window.renderDashboard) window.renderDashboard();
-                        if (window.loadParticipantsView) window.loadParticipantsView();
+                        // Also try to refresh the active view if possible
+                        if (window.loadParticipantsView && document.getElementById('participants-view').style.display !== 'none') {
+                            window.loadParticipantsView();
+                        }
                     });
                 }
             }
