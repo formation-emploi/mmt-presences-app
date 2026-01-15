@@ -2008,6 +2008,20 @@
                 for (const item of list) {
                     await this.update(STORES.ATTENDANCE, item);
                 }
+            },
+
+            // Archived Participants Support
+            async getArchivedParticipants() { return this.getAll('archivedParticipants'); },
+            async saveArchivedParticipant(p) {
+                if (!this.data.archivedParticipants) this.data.archivedParticipants = [];
+                const index = this.data.archivedParticipants.findIndex(i => i.id === p.id);
+                if (index !== -1) this.data.archivedParticipants[index] = p;
+                else this.data.archivedParticipants.push(p);
+                await this.save();
+                return p;
+            },
+            async deleteArchivedParticipant(id) {
+                await this.delete('archivedParticipants', id);
             }
         };
 
@@ -2347,12 +2361,23 @@
 
             try {
                 // Fetch all data (Active + Archived)
+                // Fetch all data (Active + Archived)
                 let rawParticipants = await participantService.getAllParticipants();
-                if (dbService.data.archivedParticipants) {
-                    // Merge unique participants
+
+                // Handle archived fetching via Adapter or direct property
+                let archived = [];
+                if (dbService.getArchivedParticipants) {
+                    archived = await dbService.getArchivedParticipants();
+                } else if (dbService.getAll) {
+                    archived = await dbService.getAll('archivedParticipants');
+                } else if (dbService.data && dbService.data.archivedParticipants) {
+                    archived = dbService.data.archivedParticipants;
+                }
+
+                if (archived && archived.length > 0) {
                     const activeIds = new Set(rawParticipants.map(p => p.id));
-                    const archived = dbService.data.archivedParticipants.filter(p => !activeIds.has(p.id));
-                    rawParticipants = [...rawParticipants, ...archived];
+                    const uniqueArchived = archived.filter(p => !activeIds.has(p.id));
+                    rawParticipants = [...rawParticipants, ...uniqueArchived];
                 }
 
                 // Filter by Date Overlap with current View Month
@@ -2696,7 +2721,15 @@
 
             listContainer.innerHTML = '<p>Chargement...</p>';
             try {
-                const archived = await dbService.getAll('archivedParticipants');
+                let archived = [];
+                if (dbService.getArchivedParticipants) {
+                    archived = await dbService.getArchivedParticipants();
+                } else if (dbService.getAll) {
+                    archived = await dbService.getAll('archivedParticipants');
+                } else {
+                    // Fallback for direct data access if adapter mimics data structure
+                    archived = (dbService.data && dbService.data.archivedParticipants) ? dbService.data.archivedParticipants : [];
+                }
                 if (archived.length === 0) {
                     listContainer.innerHTML = '<p style="text-align: center; color: #666; padding: 2rem;">Aucun participant archivé.</p>';
                 } else {
@@ -5263,6 +5296,38 @@
             }
 
             async getClasses() { await this.init(); return this.cache.classes || []; }
+
+            // Archived Participants Support for Firebase
+            async getArchivedParticipants() {
+                await this.init();
+                // If we want to support archives in Firebase, we should probably have a collection
+                // For now, let's try to fetch if it exists, or return empty
+                try {
+                    const snap = await getDocs(collection(db, 'archivedParticipants'));
+                    const archived = [];
+                    snap.forEach(doc => archived.push({ id: doc.id, ...doc.data() }));
+                    return archived;
+                } catch (e) {
+                    console.warn('Archives not supported or empty in Firebase yet');
+                    return [];
+                }
+            }
+
+            async saveArchivedParticipant(participant) {
+                await this.init();
+                try {
+                    const docRef = doc(db, 'archivedParticipants', participant.id);
+                    await setDoc(docRef, participant);
+                    return participant;
+                } catch (e) { console.error('Error saving archive', e); throw e; }
+            }
+
+            async deleteArchivedParticipant(id) {
+                await this.init();
+                try {
+                    await deleteDoc(doc(db, 'archivedParticipants', id));
+                } catch (e) { console.error('Error deleting archive', e); throw e; }
+            }
 
             async saveClass(classItem) {
                 await this.init();
