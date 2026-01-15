@@ -2402,7 +2402,13 @@
                     return true;
                 });
 
-                const allAttendance = await dbService.getAll(STORES.ATTENDANCE);
+                // Récupérer les présences via la méthode appropriée
+                let allAttendance = [];
+                if (dbService.getAttendances) {
+                    allAttendance = await dbService.getAttendances();
+                } else if (dbService.getAll) {
+                    allAttendance = await dbService.getAll(STORES.ATTENDANCE);
+                }
 
                 // Filter attendance for this month
                 const monthAtt = allAttendance.filter(r => r.date && r.date.startsWith(monthValue));
@@ -5409,7 +5415,8 @@
                         // Rafraîchir l'affichage si on est sur le dashboard
                         if (window.renderDashboard) window.renderDashboard();
                         // Also try to refresh the active view if possible
-                        if (window.loadParticipantsView && document.getElementById('participants-view').style.display !== 'none') {
+                        const participantsView = document.getElementById('participants-view');
+                        if (window.loadParticipantsView && participantsView && participantsView.style.display !== 'none') {
                             window.loadParticipantsView();
                         }
                     });
