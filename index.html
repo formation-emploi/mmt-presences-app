@@ -5224,14 +5224,29 @@
             async saveParticipant(participant) {
                 await this.init();
                 try {
-                    if (participant.id) {
-                        const docRef = doc(db, 'participants', participant.id);
-                        await setDoc(docRef, participant);
+                    // Clone to avoid mutating the original object used by the app / cache
+                    const pToSave = { ...participant };
+
+                    // Convert ArrayBuffer to Base64 for Firestore
+                    if (pToSave.originalPdf && pToSave.originalPdf instanceof ArrayBuffer) {
+                        let binary = '';
+                        const bytes = new Uint8Array(pToSave.originalPdf);
+                        const len = bytes.byteLength;
+                        for (let i = 0; i < len; i++) {
+                            binary += String.fromCharCode(bytes[i]);
+                        }
+                        pToSave.originalPdf = window.btoa(binary);
+                        pToSave.isBase64Pdf = true;
+                    }
+
+                    if (pToSave.id) {
+                        const docRef = doc(db, 'participants', pToSave.id);
+                        await setDoc(docRef, pToSave);
                         const index = this.cache.participants.findIndex(p => p.id === participant.id);
                         if (index !== -1) this.cache.participants[index] = participant;
                         else this.cache.participants.push(participant);
                     } else {
-                        const docRef = await addDoc(collection(db, 'participants'), participant);
+                        const docRef = await addDoc(collection(db, 'participants'), pToSave);
                         participant.id = docRef.id;
                         this.cache.participants.push(participant);
                     }
