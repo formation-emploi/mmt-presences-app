@@ -1119,13 +1119,26 @@
             async markAsChecked(classId, date) {
                 const checkId = `check_${classId}_${date}`;
                 const data = { id: checkId, classId, date, checked: true, checkedAt: new Date().toISOString() };
-                return await dbService.update(STORES.ATTENDANCE, data);
+
+                // Utiliser la méthode appropriée selon l'adaptateur
+                if (dbService.saveAttendances) {
+                    return await dbService.saveAttendances([data]);
+                } else if (dbService.update) {
+                    return await dbService.update(STORES.ATTENDANCE, data);
+                } else if (dbService.add) {
+                    return await dbService.add(STORES.ATTENDANCE, data);
+                }
             }
 
             async isChecked(classId, date) {
                 const checkId = `check_${classId}_${date}`;
                 try {
-                    const allRecords = await dbService.getAll(STORES.ATTENDANCE);
+                    let allRecords = [];
+                    if (dbService.getAttendances) {
+                        allRecords = await dbService.getAttendances();
+                    } else if (dbService.getAll) {
+                        allRecords = await dbService.getAll(STORES.ATTENDANCE);
+                    }
                     const record = allRecords.find(r => r.id === checkId);
                     return record && record.checked;
                 } catch (error) { return false; }
@@ -1302,7 +1315,12 @@
                 if (signatureId) {
                     console.log('🔍 DEBUG: Tentative de chargement de la signature:', signatureId);
                     try {
-                        const signatures = await dbService.getAll('signatures');
+                        let signatures = [];
+                        if (dbService.getSignatures) {
+                            signatures = await dbService.getSignatures();
+                        } else if (dbService.getAll) {
+                            signatures = await dbService.getAll('signatures');
+                        }
                         console.log('🔍 DEBUG: Signatures trouvées:', signatures.length, signatures.map(s => s.id));
                         const signature = signatures.find(s => s.id === signatureId);
                         console.log('🔍 DEBUG: Signature sélectionnée:', signature ? 'Trouvée' : 'NON TROUVÉE');
@@ -2022,6 +2040,22 @@
             },
             async deleteArchivedParticipant(id) {
                 await this.delete('archivedParticipants', id);
+            },
+
+            // Signatures Support
+            async getSignatures() { return this.getAll('signatures'); },
+            async saveSignature(sig) {
+                if (!this.data.signatures) this.data.signatures = [];
+                const index = this.data.signatures.findIndex(s => s.id === sig.id);
+                if (index !== -1) this.data.signatures[index] = sig;
+                else this.data.signatures.push(sig);
+                await this.save();
+                return sig;
+            },
+            async deleteSignature(id) {
+                if (!this.data.signatures) return;
+                this.data.signatures = this.data.signatures.filter(s => s.id !== id);
+                await this.save();
             }
         };
 
@@ -3717,7 +3751,15 @@
                 const signatureDate = `${sDay}.${sMonth}.${sYear}`;
 
                 const allParticipants = await participantService.getAllParticipants();
-                const allAttendance = await dbService.getAll(STORES.ATTENDANCE);
+
+                // Récupérer les présences via la méthode appropriée
+                let allAttendance = [];
+                if (dbService.getAttendances) {
+                    allAttendance = await dbService.getAttendances();
+                } else if (dbService.getAll) {
+                    allAttendance = await dbService.getAll(STORES.ATTENDANCE);
+                }
+
                 const classes = await classService.getAllClasses();
 
                 // Filter participants based on selection
@@ -4526,6 +4568,11 @@
                 // Update check indicator
                 updateCheckIndicator(true);
 
+                // Rafraîchir le tableau de bord pour afficher les changements
+                if (window.renderDashboard) {
+                    setTimeout(() => window.renderDashboard(), 100);
+                }
+
                 alert('Présences enregistrées avec succès !');
             } catch (error) {
                 console.error('Error saving attendance', error);
@@ -4751,18 +4798,32 @@
                     dateAdded: new Date().toISOString()
                 };
 
-                // Save to database
-                if (!dbService.data.signatures) dbService.data.signatures = [];
-                dbService.data.signatures.push(signature);
-                await dbService.save();
+                try {
+                    // Save to database using appropriate method
+                    if (dbService.saveSignature) {
+                        await dbService.saveSignature(signature);
+                    } else if (dbService.add) {
+                        await dbService.add('signatures', signature);
+                    } else {
+                        // Fallback for direct data access
+                        if (!dbService.data.signatures) dbService.data.signatures = [];
+                        dbService.data.signatures.push(signature);
+                        await dbService.save();
+                    }
 
-                // Reset form
-                nameInput.value = '';
-                fileInput.value = '';
+                    // Reset form
+                    nameInput.value = '';
+                    fileInput.value = '';
 
-                // Reload list
-                loadSignaturesList();
-                loadSignaturesDropdown();
+                    // Reload list
+                    loadSignaturesList();
+                    loadSignaturesDropdown();
+
+                    alert('✅ Signature enregistrée avec succès !');
+                } catch (error) {
+                    console.error('Error saving signature:', error);
+                    alert('❌ Erreur lors de l\'enregistrement de la signature');
+                }
             };
 
             reader.readAsDataURL(file);
@@ -4772,8 +4833,16 @@
             if (!confirm('Supprimer cette signature ?')) return;
 
             try {
-                dbService.data.signatures = dbService.data.signatures.filter(s => s.id !== id);
-                await dbService.save();
+                if (dbService.deleteSignature) {
+                    await dbService.deleteSignature(id);
+                } else if (dbService.delete) {
+                    await dbService.delete('signatures', id);
+                } else {
+                    // Fallback for direct data access
+                    dbService.data.signatures = dbService.data.signatures.filter(s => s.id !== id);
+                    await dbService.save();
+                }
+
                 loadSignaturesList();
                 loadSignaturesDropdown();
             } catch (error) {
@@ -4786,7 +4855,12 @@
             const container = document.getElementById('signatures-list');
             if (!container) return;
 
-            const signatures = await dbService.getAll('signatures');
+            let signatures = [];
+            if (dbService.getSignatures) {
+                signatures = await dbService.getSignatures();
+            } else if (dbService.getAll) {
+                signatures = await dbService.getAll('signatures');
+            }
 
             if (signatures.length === 0) {
                 container.innerHTML = '<p style="text-align: center; color: #666; padding: 2rem;">Aucune signature enregistrée.</p>';
@@ -4812,7 +4886,14 @@
             const select = document.getElementById('select-signature');
             if (!select) return;
 
-            const signatures = await dbService.getAll('signatures');
+            let signatures = [];
+            if (dbService.getSignatures) {
+                signatures = await dbService.getSignatures();
+            } else if (dbService.getAll) {
+                signatures = await dbService.getAll('signatures');
+            }
+
+            console.log('📋 Chargement dropdown signatures:', signatures.length, 'trouvée(s)');
 
             // Keep first option (Aucune signature)
             select.innerHTML = '<option value="">Aucune signature</option>';
@@ -4823,6 +4904,8 @@
                 option.textContent = sig.name;
                 select.appendChild(option);
             });
+
+            console.log('✅ Dropdown signatures chargé avec', signatures.length, 'option(s)');
         }
 
         // Signature preview on selection change
@@ -4840,7 +4923,13 @@
                         return;
                     }
 
-                    const signatures = await dbService.getAll('signatures');
+                    let signatures = [];
+                    if (dbService.getSignatures) {
+                        signatures = await dbService.getSignatures();
+                    } else if (dbService.getAll) {
+                        signatures = await dbService.getAll('signatures');
+                    }
+
                     const signature = signatures.find(s => s.id === sigId);
 
                     if (signature) {
@@ -5335,6 +5424,61 @@
                 } catch (e) { console.error('Error deleting archive', e); throw e; }
             }
 
+            // Signatures Support for Firebase
+            async getSignatures() {
+                await this.init();
+
+                // Retourner depuis le cache si disponible
+                if (this.cache.signatures && this.cache.signatures.length > 0) {
+                    return this.cache.signatures;
+                }
+
+                try {
+                    const snap = await getDocs(collection(db, 'signatures'));
+                    const signatures = [];
+                    snap.forEach(doc => signatures.push({ id: doc.id, ...doc.data() }));
+                    this.cache.signatures = signatures;
+                    return signatures;
+                } catch (e) {
+                    console.warn('Signatures collection not found or empty');
+                    return [];
+                }
+            }
+
+            async saveSignature(signature) {
+                await this.init();
+                try {
+                    const docRef = doc(db, 'signatures', signature.id);
+                    await setDoc(docRef, signature);
+
+                    // Mettre à jour le cache local
+                    if (!this.cache.signatures) this.cache.signatures = [];
+                    const index = this.cache.signatures.findIndex(s => s.id === signature.id);
+                    if (index !== -1) {
+                        this.cache.signatures[index] = signature;
+                    } else {
+                        this.cache.signatures.push(signature);
+                    }
+
+                    console.log('✅ Signature saved to Firebase');
+                    return signature;
+                } catch (e) {
+                    console.error('❌ Error saving signature:', e);
+                    throw e;
+                }
+            }
+
+            async deleteSignature(id) {
+                await this.init();
+                try {
+                    await deleteDoc(doc(db, 'signatures', id));
+                    console.log('✅ Signature deleted from Firebase');
+                } catch (e) {
+                    console.error('❌ Error deleting signature:', e);
+                    throw e;
+                }
+            }
+
             async saveClass(classItem) {
                 await this.init();
                 try {
@@ -5375,7 +5519,18 @@
                             attendance.id = docRef.id;
                         }
                     }
-                    this.cache.attendances = attendances;
+
+                    // Mettre à jour le cache local
+                    for (const attendance of attendances) {
+                        const index = this.cache.attendances.findIndex(a => a.id === attendance.id);
+                        if (index !== -1) {
+                            this.cache.attendances[index] = attendance;
+                        } else {
+                            this.cache.attendances.push(attendance);
+                        }
+                    }
+
+                    console.log('✅ Attendances saved to Firebase');
                 } catch (error) { console.error('❌ Error saving attendances:', error); throw error; }
             }
         }
