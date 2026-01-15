@@ -1082,6 +1082,7 @@
          * Attendance Service
          */
         const ATTENDANCE_CODES = {
+            '': { code: '', label: '(Vide)', description: 'Effacer / Aucune sélection', requiresComment: false },
             'X': { code: 'X', label: 'Sur place', description: 'PARTICIPATION SUR PLACE : le participant est présent', requiresComment: false },
             'O': { code: 'O', label: 'En ligne', description: 'PARTICIPATION EN LIGNE', requiresComment: false },
             'A': { code: 'A', label: 'Vacances', description: 'VACANCES : jours sans contrôle accordés par l\'ORP', requiresComment: false },
@@ -2543,10 +2544,10 @@
                                 cellContentA += interruptionIcon;
                             }
 
-                            // Add onclick for editable cells
-                            const onclickM = isScheduledAm ? `onclick="window.app.editDashboardCell('${p.id}', '${dateStr}', 'morning', '${mCode}', '${comment.replace(/'/g, "\\'")}', '${className}')"` : '';
-                            const onclickA = isScheduledPm ? `onclick="window.app.editDashboardCell('${p.id}', '${dateStr}', 'afternoon', '${aCode}', '${comment.replace(/'/g, "\\'")}', '${className}')"` : '';
-                            const cursorStyle = (isScheduledAm || isScheduledPm) ? 'cursor: pointer;' : '';
+                            // Add onclick for editable cells - ALWAYS allow editing even if not scheduled (User Request)
+                            const onclickM = `onclick="window.app.editDashboardCell('${p.id}', '${dateStr}', 'morning', '${mCode}', '${comment.replace(/'/g, "\\'")}', '${className}')"`;
+                            const onclickA = `onclick="window.app.editDashboardCell('${p.id}', '${dateStr}', 'afternoon', '${aCode}', '${comment.replace(/'/g, "\\'")}', '${className}')"`;
+                            const cursorStyle = 'cursor: pointer;';
 
                             rowMatin += `<td class="${weekendClass} ${getCellClass(mCode, isScheduledAm)} ${tooltipClass}" ${tooltipAttr} style="${lastDayStyle} ${cursorStyle}" ${lastDayTooltip} ${onclickM}>${cellContentM}</td>`;
 
@@ -3192,31 +3193,10 @@
                         <div style="margin-bottom: 1.5rem;">
                             <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Code de présence</label>
                             <select id="attendance-code-select" style="width: 100%; padding: 0.75rem; border: 1px solid #ddd; border-radius: 8px; font-size: 1rem;">
-                                <option value="">-- Sélectionner --</option>
-                                <option value="X" ${currentCode === 'X' ? 'selected' : ''}>X - Sur place</option>
-                                <option value="A" ${currentCode === 'A' ? 'selected' : ''}>A - Absence non justifiée</option>
-                                <option value="B" ${currentCode === 'B' ? 'selected' : ''}>B - Maladie sans certificat médical (max 3j)</option>
-                                <option value="C" ${currentCode === 'C' ? 'selected' : ''}>C - Maladie avec certificat médical</option>
-                                <option value="D" ${currentCode === 'D' ? 'selected' : ''}>D - Accident</option>
-                                <option value="E" ${currentCode === 'E' ? 'selected' : ''}>E - Service militaire, protection civile, pompiers</option>
-                                <option value="F" ${currentCode === 'F' ? 'selected' : ''}>F - Maternité</option>
-                                <option value="G" ${currentCode === 'G' ? 'selected' : ''}>G - Autres absences justifiées</option>
-                                <option value="H" ${currentCode === 'H' ? 'selected' : ''}>H - Vacances</option>
-                                <option value="I" ${currentCode === 'I' ? 'selected' : ''}>I - Jours fériés</option>
-                                <option value="J" ${currentCode === 'J' ? 'selected' : ''}>J - Cours interentreprises</option>
-                                <option value="K" ${currentCode === 'K' ? 'selected' : ''}>K - Cours à l'école professionnelle</option>
-                                <option value="L" ${currentCode === 'L' ? 'selected' : ''}>L - Autre formation</option>
-                                <option value="M" ${currentCode === 'M' ? 'selected' : ''}>M - Mesure de marché du travail</option>
-                                <option value="N" ${currentCode === 'N' ? 'selected' : ''}>N - Gain intermédiaire</option>
-                                <option value="O" ${currentCode === 'O' ? 'selected' : ''}>O - Incapacité de travail</option>
-                                <option value="P" ${currentCode === 'P' ? 'selected' : ''}>P - Présence (ancien code)</option>
-                                <option value="Q" ${currentCode === 'Q' ? 'selected' : ''}>Q - Quarantaine</option>
-                                <option value="R" ${currentCode === 'R' ? 'selected' : ''}>R - Raison familiale</option>
-                                <option value="S" ${currentCode === 'S' ? 'selected' : ''}>S - Stage</option>
-                                <option value="T" ${currentCode === 'T' ? 'selected' : ''}>T - Travail temporaire</option>
-                                <option value="U" ${currentCode === 'U' ? 'selected' : ''}>U - Urgence</option>
-                                <option value="V" ${currentCode === 'V' ? 'selected' : ''}>V - Voyage</option>
-                                <option value="W" ${currentCode === 'W' ? 'selected' : ''}>W - Week-end</option>
+                                <option value="" ${!currentCode ? 'selected' : ''}>-- (Vide) --</option>
+                                ${Object.values(window.ATTENDANCE_CODES).filter(c => c.code !== '').map(c => `
+                                    <option value="${c.code}" ${currentCode === c.code ? 'selected' : ''}>${c.code} - ${c.label}</option>
+                                `).join('')}
                             </select>
                         </div>
                         
@@ -4182,9 +4162,33 @@
                     `;
 
             html += classParticipants.map(p => {
+                // Determine default presence based on Schedule
+                const currentDayOfWeek = new Date(date).getDay(); // 0 (Sun) to 6 (Sat). Note: Schedule uses 1-5.
+                // Schedule keys are '1-am', '2-pm' etc. 0 is Sunday, 6 is Saturday.
+                // Assuming Weekends are default OFF. 
+                // Convert JS Day (0=Sun, 1=Mon) to Schedule Key (1=Mon). 
+                // If weekend, default is empty ? Yes usually.
+
+                let isScheduledAm = true;
+                let isScheduledPm = true;
+
+                if (currentDayOfWeek === 0 || currentDayOfWeek === 6) {
+                    isScheduledAm = false;
+                    isScheduledPm = false;
+                } else {
+                    // Monday=1...Friday=5
+                    if (p.schedule) {
+                        isScheduledAm = p.schedule[`${currentDayOfWeek}-am`] !== false; // Default true if undefined? No, usually check property.
+                        isScheduledPm = p.schedule[`${currentDayOfWeek}-pm`] !== false;
+                        // Actually in parsed schedule, it is boolean.
+                        if (p.schedule[`${currentDayOfWeek}-am`] === false) isScheduledAm = false;
+                        if (p.schedule[`${currentDayOfWeek}-pm`] === false) isScheduledPm = false;
+                    }
+                }
+
                 const record = recordMap.get(p.id) || {};
-                const morningVal = record.morningCode || 'X';
-                const afternoonVal = record.afternoonCode || 'X';
+                const morningVal = record.morningCode !== undefined ? record.morningCode : (isScheduledAm ? 'X' : '');
+                const afternoonVal = record.afternoonCode !== undefined ? record.afternoonCode : (isScheduledPm ? 'X' : '');
                 const commentVal = record.comment || '';
 
                 return `
