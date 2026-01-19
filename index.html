@@ -588,9 +588,9 @@
                 style="background: #dc2626; color: white; border: none;" title="Se déconnecter">
                 🚪 Déconnexion
             </button>
-            <button onclick="window.app.clearTemplate()" class="btn-secondary btn-sm"
-                style="background: #6c757d; color: white; border: none;" title="Changer le template PDF">
-                📄 Template
+            <button onclick="window.app.uploadGlobalTemplate()" class="btn-secondary btn-sm"
+                style="background: #6c757d; color: white; border: none;" title="Définir le modèle PDF global">
+                📄 Définir Modèle
             </button>
         </div>
     </nav>
@@ -5297,6 +5297,29 @@
                 console.error('Error saving template:', err);
                 alert('Erreur lors de la sauvegarde du modèle en ligne.');
             }
+        };
+
+        // Manual Template Upload Function
+        window.app.uploadGlobalTemplate = async function () {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.pdf';
+            input.onchange = async (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    try {
+                        const buffer = await file.arrayBuffer();
+                        await window.saveTemplateToStorage(buffer);
+                        // Update cache immediately
+                        window.cachedTemplate = buffer;
+                        console.log('✅ Template local updated from manual upload');
+                    } catch (err) {
+                        console.error('Error reading file:', err);
+                        alert('Erreur de lecture du fichier PDF.');
+                    }
+                }
+            };
+            input.click();
         };
     </script>
 
