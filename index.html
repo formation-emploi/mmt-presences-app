@@ -5542,7 +5542,7 @@
             async getGlobalTemplate() {
                 await this.init();
                 try {
-                    const docRef = doc(db, 'settings', 'globalTemplate');
+                    const docRef = doc(db, 'shared', 'globalTemplate');
                     const docSnap = await getDoc(docRef);
                     if (docSnap.exists()) {
                         const data = docSnap.data();
@@ -5573,7 +5573,7 @@
                     }
                     const base64 = window.btoa(binary);
 
-                    await setDoc(doc(db, 'settings', 'globalTemplate'), {
+                    await setDoc(doc(db, 'shared', 'globalTemplate'), {
                         base64: base64,
                         updatedAt: new Date().toISOString(),
                         updatedBy: auth.currentUser ? auth.currentUser.email : 'unknown'
