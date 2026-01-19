@@ -932,29 +932,50 @@
                 </div>
                 <!-- Mini helper script to reload signatures -->
                 <script>
-                    window.app.reloadSignatures = async () => {
-                        const select = document.getElementById('select-signature');
-                        if (!select) return;
-                        select.innerHTML = '<option value="">Aucune signature</option>';
-                        try {
-                            // Try to get signatures from dbService
-                            let signatures = [];
-                            if (window.dbService) {
-                                if (window.dbService.getSignatures) signatures = await window.dbService.getSignatures();
-                                else if (window.dbService.getAll) signatures = await window.dbService.getAll('signatures');
-                                else if (window.dbService.data && window.dbService.data.signatures) signatures = window.dbService.data.signatures;
-                            }
+                    (function () {
+                        // Ensure window.app exists
+                        window.app = window.app || {};
 
-                            signatures.forEach(s => {
-                                const opt = document.createElement('option');
-                                opt.value = s.id;
-                                opt.textContent = s.name || 'Signature sans nom';
-                                select.appendChild(opt);
-                            });
-                        } catch (e) { console.warn('Erreur chargement signatures', e); }
-                    };
-                    // Load on init if possible
-                    setTimeout(() => { if (window.app.reloadSignatures) window.app.reloadSignatures(); }, 2000);
+                        // Define reloadSignatures
+                        window.app.reloadSignatures = async () => {
+                            const select = document.getElementById('select-signature');
+                            if (!select) return;
+
+                            // Save current selection if any
+                            const currentVal = select.value;
+
+                            select.innerHTML = '<option value="">Aucune signature</option>';
+                            try {
+                                // Try to get signatures from dbService
+                                let signatures = [];
+                                if (window.dbService) {
+                                    if (window.dbService.getSignatures) signatures = await window.dbService.getSignatures();
+                                    else if (window.dbService.getAll) signatures = await window.dbService.getAll('signatures');
+                                    else if (window.dbService.data && window.dbService.data.signatures) signatures = window.dbService.data.signatures;
+                                }
+
+                                signatures.forEach(s => {
+                                    const opt = document.createElement('option');
+                                    opt.value = s.id;
+                                    opt.textContent = s.name || 'Signature sans nom';
+                                    select.appendChild(opt);
+                                });
+
+                                // Restore selection if it still exists
+                                if (currentVal && Array.from(select.options).some(o => o.value === currentVal)) {
+                                    select.value = currentVal;
+                                }
+                            } catch (e) { console.warn('Erreur chargement signatures', e); }
+                        };
+
+                        // Initial load
+                        // Wait for DOM and main app initialization
+                        window.addEventListener('load', () => {
+                            setTimeout(() => {
+                                if (window.app.reloadSignatures) window.app.reloadSignatures();
+                            }, 1000);
+                        });
+                    })();
                 </script>
 
                 <div id="signature-preview"
