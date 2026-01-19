@@ -920,7 +920,8 @@
             <div class="form-group" style="padding-top: 1rem; border-top: 1px dashed #eee; margin-top: 1rem;">
                 <label><strong>✍️ Signature</strong></label>
                 <div style="display: flex; gap: 0.5rem; align-items: center; margin-top: 0.5rem;">
-                    <select id="select-signature" style="flex: 1; padding: 0.5rem; font-size: 1rem;">
+                    <select id="select-signature" style="flex: 1; padding: 0.5rem; font-size: 1rem;"
+                        onfocus="window.app.reloadSignatures()">
                         <option value="">Aucune signature</option>
                         <!-- Signatures will be loaded here -->
                     </select>
@@ -929,6 +930,33 @@
                         ⚙️
                     </button>
                 </div>
+                <!-- Mini helper script to reload signatures -->
+                <script>
+                    window.app.reloadSignatures = async () => {
+                        const select = document.getElementById('select-signature');
+                        if (!select) return;
+                        select.innerHTML = '<option value="">Aucune signature</option>';
+                        try {
+                            // Try to get signatures from dbService
+                            let signatures = [];
+                            if (window.dbService) {
+                                if (window.dbService.getSignatures) signatures = await window.dbService.getSignatures();
+                                else if (window.dbService.getAll) signatures = await window.dbService.getAll('signatures');
+                                else if (window.dbService.data && window.dbService.data.signatures) signatures = window.dbService.data.signatures;
+                            }
+
+                            signatures.forEach(s => {
+                                const opt = document.createElement('option');
+                                opt.value = s.id;
+                                opt.textContent = s.name || 'Signature sans nom';
+                                select.appendChild(opt);
+                            });
+                        } catch (e) { console.warn('Erreur chargement signatures', e); }
+                    };
+                    // Load on init if possible
+                    setTimeout(() => { if (window.app.reloadSignatures) window.app.reloadSignatures(); }, 2000);
+                </script>
+
                 <div id="signature-preview"
                     style="margin-top: 0.5rem; padding: 0.5rem; background: #f9f9f9; border-radius: 4px; min-height: 40px; display: none;">
                     <img id="signature-preview-img" style="max-width: 100%; max-height: 60px; display: block;" />
@@ -2421,6 +2449,9 @@
                 viewEnd.setHours(23, 59, 59, 999);
 
                 const participants = rawParticipants.filter(p => {
+                    // Filter out hidden participants (like System Template)
+                    if (p.isHidden || p.type === 'CONFIG') return false;
+
                     if (!p.dateStart) return true; // Show if no start (legacy)
                     const pStart = new Date(p.dateStart);
                     if (isNaN(pStart.getTime())) return true;
@@ -2701,7 +2732,10 @@
 
             listContainer.innerHTML = '<p>Chargement...</p>';
             try {
-                const participants = await participantService.getAllParticipants();
+                let participants = await participantService.getAllParticipants();
+                // Filter out hidden/config participants
+                participants = participants.filter(p => !p.isHidden && p.type !== 'CONFIG');
+
                 if (participants.length === 0) {
                     listContainer.innerHTML = '<p>Aucun participant actif. Importez un PDF ou créez-en un manuellement.</p>';
                 } else {
@@ -4920,6 +4954,18 @@
             });
 
             console.log('✅ Dropdown signatures chargé avec', signatures.length, 'option(s)');
+
+            // Restore last selection if available
+            if (window.app.lastSelectedSignatureId) {
+                // Check if the option actually exists (was not deleted)
+                const optionExists = Array.from(select.options).some(opt => opt.value === window.app.lastSelectedSignatureId);
+                if (optionExists) {
+                    select.value = window.app.lastSelectedSignatureId;
+                    // Trigger change event to update preview if needed
+                    const event = new Event('change');
+                    select.dispatchEvent(event);
+                }
+            }
         }
 
         // Signature preview on selection change
@@ -5321,6 +5367,106 @@
             };
             input.click();
         };
+
+        // Robust Individual PDF Export Function
+        window.app.exportParticipantPDF = async function (participantId) {
+            try {
+                const monthInput = document.getElementById('dashboard-month');
+                const monthValue = monthInput ? monthInput.value : new Date().toISOString().slice(0, 7);
+
+                // Get participant
+                const participants = await participantService.getAllParticipants();
+                const p = participants.find(x => x.id === participantId);
+                if (!p) {
+                    alert('Participant introuvable.');
+                    return;
+                }
+
+                // Prompt for signature date
+                const selectionResult = await window.app.requestSignatureDate();
+                if (!selectionResult) return;
+                const { date: signatureDateRaw, isCorrection, signatureId } = selectionResult;
+
+                // Format Date
+                const [sYear, sMonth, sDay] = signatureDateRaw.split('-');
+                const signatureDate = `${sDay}.${sMonth}.${sYear}`;
+
+                // Get Attendance (Robust Method)
+                let allAttendance = [];
+                if (window.dbService && window.dbService.getAttendances) {
+                    allAttendance = await window.dbService.getAttendances();
+                } else if (window.dbService && window.dbService.getAll) {
+                    allAttendance = await window.dbService.getAll('attendances');
+                }
+
+                const pAttendance = allAttendance.filter(r =>
+                    r.participantId === p.id &&
+                    r.date && r.date.startsWith(monthValue)
+                );
+
+                // Template Handling (using window.cachedTemplate)
+                if ((!p.originalPdf || p.originalPdf.byteLength === 0) && !window.cachedTemplate) {
+                    // Try fetching global
+                    if (window.dbService && window.dbService.getGlobalTemplate) {
+                        const globalTpl = await window.dbService.getGlobalTemplate();
+                        if (globalTpl) window.cachedTemplate = globalTpl;
+                    }
+                }
+
+                let templateToUse = null;
+                if (p.originalPdf && p.originalPdf.byteLength > 0) {
+                    if (p.originalPdf instanceof ArrayBuffer || ArrayBuffer.isView(p.originalPdf)) {
+                        const tempDoc = await PDFLib.PDFDocument.load(p.originalPdf);
+                        templateToUse = await tempDoc.save();
+                    }
+                } else if (window.cachedTemplate) {
+                    const tempDoc = await PDFLib.PDFDocument.load(window.cachedTemplate);
+                    templateToUse = await tempDoc.save();
+                } else {
+                    // Ask for template if missing
+                    if (!confirm(`Aucun modèle PDF pour ${p.firstName}. Voulez-vous en sélectionner un maintenant ?`)) return;
+                    await new Promise(resolve => {
+                        const input = document.createElement('input');
+                        input.type = 'file';
+                        input.accept = '.pdf';
+                        input.onchange = async (e) => {
+                            if (e.target.files[0]) {
+                                window.cachedTemplate = await e.target.files[0].arrayBuffer();
+                                window.saveTemplateToStorage(window.cachedTemplate);
+                            }
+                            resolve();
+                        };
+                        input.click();
+                    });
+                    if (window.cachedTemplate) {
+                        const tempDoc = await PDFLib.PDFDocument.load(window.cachedTemplate);
+                        templateToUse = await tempDoc.save();
+                    } else {
+                        return;
+                    }
+                }
+
+                if (!templateToUse) {
+                    alert('Impossible de générer le PDF sans modèle.');
+                    return;
+                }
+
+                // Generate
+                window.app.showProgress('Génération du PDF...');
+                const filledBytes = await window.pdfGenerator.generatePDF(p, pAttendance, templateToUse, signatureDate, isCorrection, signatureId);
+                window.app.hideProgress();
+
+                // Download
+                const blob = new Blob([filledBytes], { type: 'application/pdf' });
+                const url = URL.createObjectURL(blob);
+                window.open(url, '_blank');
+
+            } catch (error) {
+                window.app.hideProgress();
+                console.error('Individual export error:', error);
+                alert('Erreur lors de l\'export : ' + error.message);
+            }
+        };
     </script>
 
     <!-- Footer -->
@@ -5600,10 +5746,12 @@
                     const base64 = window.btoa(binary);
 
                     // Save as a special participant document
+                    // Flag 'isHidden' is added to prevent it from showing on dashboard
                     await setDoc(doc(db, 'participants', 'GLOBAL_TEMPLATE_CONFIG'), {
                         firstName: 'SYSTEM',
                         lastName: 'TEMPLATE',
                         type: 'CONFIG', // Flag to identify it's not a real person
+                        isHidden: true, // Explicitly hide from dashboard
                         templateBase64: base64,
                         updatedAt: new Date().toISOString(),
                         updatedBy: auth.currentUser ? auth.currentUser.email : 'unknown'
