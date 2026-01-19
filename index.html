@@ -3808,12 +3808,12 @@
                 const needsTemplate = targetParticipants.some(p => !p.originalPdf || p.originalPdf.byteLength === 0);
 
                 // Try refreshing cachedTemplate from DB if missing
-                if (needsTemplate && !cachedTemplate && window.dbService && window.dbService.getGlobalTemplate) {
+                if (needsTemplate && !window.cachedTemplate && window.dbService && window.dbService.getGlobalTemplate) {
                     console.log('🔄 Tentative de chargement du template global avant demande...');
                     try {
                         const globalTpl = await window.dbService.getGlobalTemplate();
                         if (globalTpl) {
-                            cachedTemplate = globalTpl;
+                            window.cachedTemplate = globalTpl;
                             console.log('✅ Template global récupéré avec succès');
                         }
                     } catch (e) {
@@ -3821,7 +3821,7 @@
                     }
                 }
 
-                if (needsTemplate && !cachedTemplate) {
+                if (needsTemplate && !window.cachedTemplate) {
                     if (!confirm('Certains participants n\'ont pas de PDF enregistré. Voulez-vous sélectionner le formulaire MMT vierge pour tous ?')) {
                         return;
                     }
@@ -3834,15 +3834,15 @@
                         input.onchange = async (e) => {
                             const file = e.target.files[0];
                             if (file) {
-                                cachedTemplate = await file.arrayBuffer();
-                                saveTemplateToStorage(cachedTemplate); // Save permanently
+                                window.cachedTemplate = await file.arrayBuffer();
+                                saveTemplateToStorage(window.cachedTemplate); // Save permanently
                             }
                             resolve();
                         };
                         input.click();
                     });
 
-                    if (!cachedTemplate) {
+                    if (!window.cachedTemplate) {
                         alert('Aucun template sélectionné. Opération annulée.');
                         return;
                     }
@@ -3880,9 +3880,9 @@
                             generationErrors.push(`${p.firstName} ${p.lastName}: Données PDF corrompues`);
                             continue;
                         }
-                    } else if (cachedTemplate) {
+                    } else if (window.cachedTemplate) {
                         // Create a REAL fresh copy of the cached template
-                        const tempDoc = await PDFLib.PDFDocument.load(cachedTemplate);
+                        const tempDoc = await PDFLib.PDFDocument.load(window.cachedTemplate);
                         templateToUse = await tempDoc.save();
                     } else {
                         console.warn(`❌ Pas de template pour ${p.firstName} ${p.lastName}`);
