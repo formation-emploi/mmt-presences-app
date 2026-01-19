@@ -5265,6 +5265,25 @@
 
 
 
+
+        // Global variable for cached template
+        window.cachedTemplate = null;
+
+        // Global function to save template
+        window.saveTemplateToStorage = async function (templateBuffer) {
+            try {
+                // Save to Firestore if available
+                if (window.dbService && window.dbService.saveGlobalTemplate) {
+                    await window.dbService.saveGlobalTemplate(templateBuffer);
+                    alert('✅ Modèle PDF sauvegardé en ligne pour tous les utilisateurs.');
+                } else {
+                    console.warn('DbService not available for saving template');
+                }
+            } catch (err) {
+                console.error('Error saving template:', err);
+                alert('Erreur lors de la sauvegarde du modèle en ligne.');
+            }
+        };
     </script>
 
     <!-- Footer -->
@@ -5505,6 +5524,53 @@
                 } catch (error) { console.error('❌ Error deleting class:', error); throw error; }
             }
 
+            // Template Management for Collaboration
+            async getGlobalTemplate() {
+                await this.init();
+                try {
+                    const docRef = doc(db, 'settings', 'globalTemplate');
+                    const docSnap = await getDoc(docRef);
+                    if (docSnap.exists()) {
+                        const data = docSnap.data();
+                        // Convert Base64 back to ArrayBuffer
+                        const binaryParams = window.atob(data.base64);
+                        const bytes = new Uint8Array(binaryParams.length);
+                        for (let i = 0; i < binaryParams.length; i++) {
+                            bytes[i] = binaryParams.charCodeAt(i);
+                        }
+                        return bytes.buffer;
+                    }
+                    return null;
+                } catch (error) {
+                    console.warn('⚠️ No global template found or error fetching:', error);
+                    return null;
+                }
+            }
+
+            async saveGlobalTemplate(arrayBuffer) {
+                await this.init();
+                try {
+                    // Convert ArrayBuffer to Base64
+                    let binary = '';
+                    const bytes = new Uint8Array(arrayBuffer);
+                    const len = bytes.byteLength;
+                    for (let i = 0; i < len; i++) {
+                        binary += String.fromCharCode(bytes[i]);
+                    }
+                    const base64 = window.btoa(binary);
+
+                    await setDoc(doc(db, 'settings', 'globalTemplate'), {
+                        base64: base64,
+                        updatedAt: new Date().toISOString(),
+                        updatedBy: auth.currentUser ? auth.currentUser.email : 'unknown'
+                    });
+                    console.log('✅ Global template saved to Firebase');
+                } catch (error) {
+                    console.error('❌ Error saving global template:', error);
+                    throw error;
+                }
+            }
+
             async getAttendances() { await this.init(); return this.cache.attendances || []; }
 
             async saveAttendances(attendances) {
@@ -5569,6 +5635,17 @@
                         console.log('✅ Données rechargées');
                         // Rafraîchir l'affichage si on est sur le dashboard
                         if (window.renderDashboard) window.renderDashboard();
+
+                        // Load Global Template
+                        if (window.dbService && window.dbService.getGlobalTemplate) {
+                            console.log('🔄 Chargement du template global...');
+                            window.dbService.getGlobalTemplate().then(template => {
+                                if (template) {
+                                    window.cachedTemplate = template;
+                                    console.log('✅ Template global chargé');
+                                }
+                            });
+                        }
                         // Also try to refresh the active view if possible
                         const participantsView = document.getElementById('participants-view');
                         if (window.loadParticipantsView && participantsView && participantsView.style.display !== 'none') {
