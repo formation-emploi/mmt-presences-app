@@ -3807,6 +3807,20 @@
                 // Check if we need a template
                 const needsTemplate = targetParticipants.some(p => !p.originalPdf || p.originalPdf.byteLength === 0);
 
+                // Try refreshing cachedTemplate from DB if missing
+                if (needsTemplate && !cachedTemplate && window.dbService && window.dbService.getGlobalTemplate) {
+                    console.log('🔄 Tentative de chargement du template global avant demande...');
+                    try {
+                        const globalTpl = await window.dbService.getGlobalTemplate();
+                        if (globalTpl) {
+                            cachedTemplate = globalTpl;
+                            console.log('✅ Template global récupéré avec succès');
+                        }
+                    } catch (e) {
+                        console.warn('⚠️ Impossible de récupérer le template global:', e);
+                    }
+                }
+
                 if (needsTemplate && !cachedTemplate) {
                     if (!confirm('Certains participants n\'ont pas de PDF enregistré. Voulez-vous sélectionner le formulaire MMT vierge pour tous ?')) {
                         return;
@@ -5598,6 +5612,20 @@
 
                     console.log('✅ Attendances saved to Firebase');
                 } catch (error) { console.error('❌ Error saving attendances:', error); throw error; }
+            }
+
+            // Generic getAll for backward compatibility
+            async getAll(storeName) {
+                switch (storeName) {
+                    case 'participants': return this.getParticipants();
+                    case 'classes': return this.getClasses();
+                    case 'attendances': return this.getAttendances();
+                    case 'signatures': return this.getSignatures();
+                    case 'archivedParticipants': return this.getArchivedParticipants();
+                    default:
+                        console.warn(`getAll called with unknown store: ${storeName}`);
+                        return [];
+                }
             }
         }
 
