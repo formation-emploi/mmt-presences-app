@@ -2689,8 +2689,10 @@
                             };
 
                             // Add tooltip for code G
+                            // Escape comment for HTML attribute
+                            const safeComment = comment ? comment.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
                             const tooltipClass = (mCode === 'G' && comment) ? 'code-g-tooltip' : '';
-                            const tooltipAttr = (mCode === 'G' && comment) ? `data-comment="${comment}"` : '';
+                            const tooltipAttr = (mCode === 'G' && comment) ? `data-comment="${safeComment}"` : '';
 
                             // Interruption Logic
                             let cellContentM = mCode || '';
@@ -2715,7 +2717,7 @@
                             rowMatin += `<td class="${weekendClass} ${getCellClass(mCode, isScheduledAm)} ${tooltipClass}" ${tooltipAttr} style="${lastDayStyle} ${cursorStyle}" ${lastDayTooltip} ${onclickM}>${cellContentM}</td>`;
 
                             const tooltipClassAm = (aCode === 'G' && comment) ? 'code-g-tooltip' : '';
-                            const tooltipAttrAm = (aCode === 'G' && comment) ? `data-comment="${comment}"` : '';
+                            const tooltipAttrAm = (aCode === 'G' && comment) ? `data-comment="${safeComment}"` : '';
                             rowAprem += `<td class="${weekendClass} ${getCellClass(aCode, isScheduledPm)} ${tooltipClassAm}" ${tooltipAttrAm} style="border-bottom: 2px solid #e0e0e0; ${lastDayStyle} ${cursorStyle}" ${lastDayTooltip} ${onclickA}>${cellContentA}</td>`;
                         }
 
