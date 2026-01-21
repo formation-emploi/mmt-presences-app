@@ -2601,7 +2601,7 @@
                 // Rows for each class group
                 for (const [className, classParticipants] of Object.entries(participantsByClass)) {
                     const cls = classes.find(c => c.name === className);
-                    const classId = cls ? cls.id : null;
+                    const classId = cls ? cls.id : '';
                     const manageBtn = (classId && className !== 'Sans classe')
                         ? `<button onclick="window.app.openClassAttendance('${classId}')" class="btn-secondary btn-sm" style="background:rgba(255,255,255,0.2); color:white; border:1px solid rgba(255,255,255,0.4); margin-left:1rem; padding:0.2rem 0.6rem; font-size:0.8rem;">⚙️ Gérer les présences</button>`
                         : '';
@@ -2710,8 +2710,9 @@
                             }
 
                             // Add onclick for editable cells - ALWAYS allow editing even if not scheduled (User Request)
-                            const onclickM = `onclick="window.app.editDashboardCell('${p.id}', '${dateStr}', 'morning', '${mCode}', '${comment.replace(/'/g, "\\'")}', '${className}')"`;
-                            const onclickA = `onclick="window.app.editDashboardCell('${p.id}', '${dateStr}', 'afternoon', '${aCode}', '${comment.replace(/'/g, "\\'")}', '${className}')"`;
+                            const safeClassName = className.replace(/'/g, "\\'");
+                            const onclickM = `onclick="window.app.editDashboardCell('${p.id}', '${dateStr}', 'morning', '${mCode}', '${comment.replace(/'/g, "\\'")}', '${safeClassName}', '${classId}')"`;
+                            const onclickA = `onclick="window.app.editDashboardCell('${p.id}', '${dateStr}', 'afternoon', '${aCode}', '${comment.replace(/'/g, "\\'")}', '${safeClassName}', '${classId}')"`;
                             const cursorStyle = 'cursor: pointer;';
 
                             rowMatin += `<td class="${weekendClass} ${getCellClass(mCode, isScheduledAm)} ${tooltipClass}" ${tooltipAttr} style="${lastDayStyle} ${cursorStyle}" ${lastDayTooltip} ${onclickM}>${cellContentM}</td>`;
@@ -3354,7 +3355,7 @@
         };
 
         // Dashboard Cell Editing
-        window.app.editDashboardCell = async (participantId, date, period, currentCode, currentComment, className) => {
+        window.app.editDashboardCell = async (participantId, date, period, currentCode, currentComment, className, classId) => {
             // Create modal HTML
             const modalHtml = `
                 <div id="modal-edit-attendance" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
@@ -3383,7 +3384,8 @@
                         
                         <div style="display: flex; gap: 1rem; justify-content: flex-end;">
                             <button onclick="window.app.closeEditAttendanceModal()" class="btn-secondary">Annuler</button>
-                            <button onclick="window.app.saveAttendanceFromDashboard('${participantId}', '${date}', '${period}', '${className}')" class="btn-primary">Enregistrer</button>
+                            <!-- We pass empty string for className as it is unused and dangerous to pass around without complex escaping -->
+                            <button onclick="window.app.saveAttendanceFromDashboard('${participantId}', '${date}', '${period}', '', '${classId}')" class="btn-primary">Enregistrer</button>
                         </div>
                     </div>
                 </div>
@@ -3414,7 +3416,8 @@
             if (modal) modal.remove();
         };
 
-        window.app.saveAttendanceFromDashboard = async (participantId, date, period, className) => {
+        window.app.saveAttendanceFromDashboard = async (participantId, date, period, className, classId) => {
+            console.log(`💾 Saving Dashboard (Firestore): ${period} -> ${participantId} @ ${date} (Class: ${classId})`);
             const codeSelect = document.getElementById('attendance-code-select');
             const commentTextarea = document.getElementById('attendance-comment');
 
@@ -3423,18 +3426,38 @@
 
             // Validation for code G
             if (code === 'G' && !comment) {
-                alert('Un commentaire est obligatoire pour le code G (Autres absences justifiées).\n\nVeuillez préciser la raison: mariage(3j), naissance(3j), décès proche(3j), funérailles(1j), déménagement(1j), inspection militaire(½-1j), visite médicale, assistance proche malade(3j), entretien ORP, entretien d\'embauche, rendez-vous officiel, essai en entreprise, autre absence autorisée par l\'ORP.');
+                alert('Un commentaire est obligatoire pour le code G (Autres absences justifiées).\n\nVeuillez préciser la raison.');
                 return;
             }
 
             try {
-                // Get or create attendance record
+                // Get existing records
                 const allAttendance = await dbService.getAll(STORES.ATTENDANCE);
-                let record = allAttendance.find(r => r.participantId === participantId && r.date === date);
+
+                // Construct precise Target ID
+                const targetId = `${classId}_${date}_${participantId}`;
+
+                // 1. Try finding by Exact ID
+                let record = allAttendance.find(r => r.id === targetId);
+
+                // 2. If not found, try finding compatibility (same user/date/class)
+                if (!record) {
+                    record = allAttendance.find(r => r.participantId === participantId && r.date === date && r.classId === classId);
+                }
+
+                // 3. Fallback: Legacy records without classId
+                if (!record) {
+                    record = allAttendance.find(r => r.participantId === participantId && r.date === date && !r.classId);
+                    if (record) {
+                        console.log('⚠️ Updating legacy record with ClassID');
+                        record.classId = classId;
+                    }
+                }
 
                 if (!record) {
+                    console.log('✨ Creating new attendance record');
                     record = {
-                        id: `${participantId}_${date}`,
+                        classId: classId,
                         participantId,
                         date,
                         morningCode: '',
@@ -3443,29 +3466,48 @@
                     };
                 }
 
-                // Update the appropriate period
+                // Apply changes strictly to the requested period
+                let oldMorning = record.morningCode;
+                let oldAfternoon = record.afternoonCode;
+
                 if (period === 'morning') {
                     record.morningCode = code;
-                } else {
+                } else if (period === 'afternoon') {
                     record.afternoonCode = code;
+                } else {
+                    console.error('❌ Invalid period:', period);
+                    return;
                 }
+
+                // DEBUG ALERT
+                // alert(`🔍 DEBUG (Firestore):\nModification demandée pour: ${period}\n\nAvant:\nMatin: ${oldMorning}\nAprès-midi: ${oldAfternoon}\n\nAprès modification:\nMatin: ${record.morningCode}\nAprès-midi: ${record.afternoonCode}\n\nSi vous voyez que les deux ont changé, c'est un BUG !`);
 
                 // Update comment
                 record.comment = comment;
 
-                // Save to database
-                await attendanceService.saveAttendance([record]);
+                // Save
+                if (window.attendanceService) {
+                    await window.attendanceService.saveAttendance([record]);
+                } else {
+                    // Fallback manual save
+                    if (!record.id) record.id = targetId;
+                    await dbService.update(STORES.ATTENDANCE, record);
+                }
 
-                // Close modal
                 window.app.closeEditAttendanceModal();
 
-                // Refresh dashboard
-                renderDashboard();
+                // Refresh Dashboard
+                if (typeof renderDashboard === 'function') {
+                    renderDashboard();
+                } else {
+                    window.location.reload();
+                }
 
-                console.log('✅ Présence mise à jour depuis le tableau de bord');
+                console.log('✅ Saved successfully');
+
             } catch (error) {
-                console.error('❌ Erreur lors de la sauvegarde:', error);
-                alert('Erreur lors de la sauvegarde de la présence');
+                console.error('❌ Save error:', error);
+                alert('Erreur lors de la sauvegarde: ' + error.message);
             }
         };
 
@@ -5820,7 +5862,9 @@
                 switch (storeName) {
                     case 'participants': return this.getParticipants();
                     case 'classes': return this.getClasses();
-                    case 'attendances': return this.getAttendances();
+                    case 'classes': return this.getClasses();
+                    case 'attendances':
+                    case 'attendance': return this.getAttendances(); // Handle both singular and plural
                     case 'signatures': return this.getSignatures();
                     case 'archivedParticipants': return this.getArchivedParticipants();
                     default:
