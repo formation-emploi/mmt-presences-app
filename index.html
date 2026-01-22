@@ -716,6 +716,10 @@
 
                     </div>
                     <div style="display: flex; align-items: center;">
+                        <button class="btn-secondary" style="color: #d32f2f; border-color: #d32f2f; margin-right: 10px;"
+                            onclick="window.resetDayAttendance()" title="Effacer toutes les saisies pour ce jour">
+                            🗑️ Effacer journée
+                        </button>
                         <button class="btn-primary" style="padding: 1rem 2rem; font-size: 1.1rem;"
                             onclick="window.saveAttendance()">
                             Présences contrôlées
@@ -1127,74 +1131,7 @@
         // Initialize global app object
         window.app = window.app || {};
 
-        /**
-         * Attendance Service
-         */
-        const ATTENDANCE_CODES = {
-            '': { code: '', label: '(Vide)', description: 'Effacer / Aucune sélection', requiresComment: false },
-            'X': { code: 'X', label: 'Sur place', description: 'PARTICIPATION SUR PLACE : le participant est présent', requiresComment: false },
-            'O': { code: 'O', label: 'En ligne', description: 'PARTICIPATION EN LIGNE', requiresComment: false },
-            'A': { code: 'A', label: 'Vacances', description: 'VACANCES : jours sans contrôle accordés par l\'ORP', requiresComment: false },
-            'B': { code: 'B', label: 'Maladie/Grossesse', description: 'MALADIE, GROSSESSE : certificat médical requis', requiresComment: false },
-            'C': { code: 'C', label: 'Accident', description: 'ACCIDENT : certificat médical requis dès le 4e jour', requiresComment: false },
-            'D': { code: 'D', label: 'Congé maternité/parental', description: 'CONGÉ MATERNITÉ, CONGÉ DE L\'AUTRE PARENT', requiresComment: false },
-            'E': { code: 'E', label: 'Service militaire/civil', description: 'SERVICE MILITAIRE, SERVICE CIVIL', requiresComment: false },
-            'F': { code: 'F', label: 'Gain intermédiaire', description: 'GAIN INTERMÉDIAIRE : auprès d\'un employeur', requiresComment: false },
-            'G': { code: 'G', label: 'Autres absences justifiées', description: 'AUTRES ABSENCES JUSTIFIÉES AVEC INDEMNITÉ DE CHÔMAGE', requiresComment: true },
-            'H': { code: 'H', label: 'Jours fériés/Fermeture', description: 'JOURS FÉRIÉS, VACANCES D\'ENTREPRISE', requiresComment: false },
-            'I': { code: 'I', label: 'Absence non justifiée', description: 'ABSENCES NON JUSTIFIÉES', requiresComment: false }
-        };
 
-        class AttendanceService {
-            async saveAttendance(attendanceRecords) {
-                const items = attendanceRecords.map(record => {
-                    const id = `${record.classId}_${record.date}_${record.participantId}`;
-                    return { ...record, id };
-                });
-
-                if (dbService.saveAttendances) return await dbService.saveAttendances(items);
-
-                const promises = items.map(item => dbService.update(STORES.ATTENDANCE, item));
-                return Promise.all(promises);
-            }
-
-            async getAttendance(classId, date) {
-                let all = [];
-                if (dbService.getAttendances) all = await dbService.getAttendances();
-                else all = await dbService.getAll(STORES.ATTENDANCE);
-                return all.filter(r => r.classId === classId && r.date === date);
-            }
-
-            async markAsChecked(classId, date) {
-                const checkId = `check_${classId}_${date}`;
-                const data = { id: checkId, classId, date, checked: true, checkedAt: new Date().toISOString() };
-
-                // Utiliser la méthode appropriée selon l'adaptateur
-                if (dbService.saveAttendances) {
-                    return await dbService.saveAttendances([data]);
-                } else if (dbService.update) {
-                    return await dbService.update(STORES.ATTENDANCE, data);
-                } else if (dbService.add) {
-                    return await dbService.add(STORES.ATTENDANCE, data);
-                }
-            }
-
-            async isChecked(classId, date) {
-                const checkId = `check_${classId}_${date}`;
-                try {
-                    let allRecords = [];
-                    if (dbService.getAttendances) {
-                        allRecords = await dbService.getAttendances();
-                    } else if (dbService.getAll) {
-                        allRecords = await dbService.getAll(STORES.ATTENDANCE);
-                    }
-                    const record = allRecords.find(r => r.id === checkId);
-                    return record && record.checked;
-                } catch (error) { return false; }
-            }
-        }
-        window.attendanceService = new AttendanceService();
-        window.ATTENDANCE_CODES = ATTENDANCE_CODES;
 
 
         /**
@@ -1637,15 +1574,16 @@
         const STORES = {
             PARTICIPANTS: 'participants',
             CLASSES: 'classes',
-            ATTENDANCE: 'attendance'
+            ATTENDANCE: 'attendances'
         };
+        window.STORES = STORES;
 
         // Database Service (SharePoint/JSON Mode with LocalStorage Fallback)
         const jsonDbService = {
             data: {
                 participants: [],
                 classes: [],
-                attendance: [],
+                attendances: [],
                 archivedParticipants: [],
                 signatures: []
             },
@@ -2246,6 +2184,87 @@
             }
         };
 
+        // Attendance Service Implementation (Injected inline to ensure availability)
+        const ATTENDANCE_CODES = {
+            '': { code: '', label: '(Vide)', description: 'Effacer / Aucune sélection', requiresComment: false },
+            'X': { code: 'X', label: 'Sur place', description: 'PARTICIPATION SUR PLACE : le participant est présent', requiresComment: false },
+            'O': { code: 'O', label: 'En ligne', description: 'PARTICIPATION EN LIGNE', requiresComment: false },
+            'A': { code: 'A', label: 'Vacances', description: 'VACANCES : jours sans contrôle accordés par l\'ORP', requiresComment: false },
+            'B': { code: 'B', label: 'Maladie/Grossesse', description: 'MALADIE, GROSSESSE : certificat requis dès le 4e jour', requiresComment: false },
+            'C': { code: 'C', label: 'Accident', description: 'ACCIDENT : certificat requis dès le 4e jour', requiresComment: false },
+            'D': { code: 'D', label: 'Congé maternité/parental', description: 'CONGÉ MATERNITÉ, CONGÉ DE L\'AUTRE PARENT', requiresComment: false },
+            'E': { code: 'E', label: 'Service militaire/civil', description: 'SERVICE MILITAIRE, SERVICE CIVIL', requiresComment: false },
+            'F': { code: 'F', label: 'Gain intermédiaire', description: 'GAIN INTERMÉDIAIRE : auprès d\'un employeur', requiresComment: false },
+            'G': { code: 'G', label: 'Autres absences justifiées', description: 'AUTRES ABSENCES JUSTIFIÉES (Décès, Mariage, etc)', requiresComment: true },
+            'H': { code: 'H', label: 'Jours fériés/Fermeture', description: 'JOURS FÉRIÉS, VACANCES D\'ENTREPRISE', requiresComment: false },
+            'I': { code: 'I', label: 'Absence non justifiée', description: 'ABSENCES NON JUSTIFIÉES', requiresComment: false }
+        };
+        window.ATTENDANCE_CODES = ATTENDANCE_CODES;
+
+        const attendanceService = {
+            async saveAttendance(attendanceRecords) {
+                // 1. Get all existing records to check for legacy duplicates
+                let allCurrent = [];
+                try {
+                    allCurrent = await dbService.getAll(STORES.ATTENDANCE);
+                } catch (e) { console.warn("Could not fetch all for duplicate check", e); }
+
+                const promises = attendanceRecords.map(async (record) => {
+                    const canonicalId = `${record.classId}_${record.date}_${record.participantId}`;
+
+                    // 2. Find legacy duplicates (Same slot (class+date+part) BUT different ID)
+                    const duplicates = allCurrent.filter(r =>
+                        r.classId === record.classId &&
+                        r.date === record.date &&
+                        r.participantId === record.participantId &&
+                        r.id !== canonicalId
+                    );
+
+                    // 3. Delete duplicates
+                    if (duplicates.length > 0) {
+                        console.log(`🧹 Cleaning up ${duplicates.length} duplicate/legacy records for ${canonicalId}`);
+                        for (const dup of duplicates) {
+                            await dbService.delete(STORES.ATTENDANCE, dup.id);
+                        }
+                    }
+
+                    // 4. Save the correct record
+                    const item = { ...record, id: canonicalId };
+                    // Use update to ensure generic adapter logic (saveAttendances) is triggered
+                    return dbService.update(STORES.ATTENDANCE, item);
+                });
+
+                return Promise.all(promises);
+            },
+
+            async getAttendance(classId, date) {
+                const all = await dbService.getAll(STORES.ATTENDANCE);
+                return all.filter(r => r.classId === classId && r.date === date);
+            },
+
+            async markAsChecked(classId, date) {
+                const checkId = `check_${classId}_${date}`;
+                const data = {
+                    id: checkId,
+                    classId,
+                    date,
+                    checked: true,
+                    checkedAt: new Date().toISOString()
+                };
+                return dbService.update(STORES.ATTENDANCE, data);
+            },
+
+            async isChecked(classId, date) {
+                try {
+                    const allRecords = await dbService.getAll(STORES.ATTENDANCE);
+                    const record = allRecords.find(r => r.id === `check_${classId}_${date}`);
+                    return record && record.checked;
+                } catch (error) { return false; }
+            }
+        };
+        window.attendanceService = attendanceService;
+
+
         // Initialize window.app namespace immediately
         window.app = window.app || {};
 
@@ -2493,7 +2512,7 @@
                 if (dbService.getAttendances) {
                     allAttendance = await dbService.getAttendances();
                 } else if (dbService.getAll) {
-                    allAttendance = await dbService.getAll(STORES.ATTENDANCE);
+                    allAttendance = await dbService.getAll(window.STORES.ATTENDANCE);
                 }
 
                 // Filter attendance for this month
@@ -2638,7 +2657,10 @@
                         let totalHours = 0;
                         for (let d = 1; d <= daysInMonth; d++) {
                             const dateStr = `${monthValue}-${String(d).padStart(2, '0')}`;
-                            const record = monthAtt.find(r => r.participantId === p.id && r.date === dateStr);
+                            // Robust Record Finding (Handle Duplicates/Legacy)
+                            const allMatching = monthAtt.filter(r => r.participantId === p.id && r.date === dateStr);
+                            // Prioritize records with a classId (newer format), otherwise take the first found
+                            const record = allMatching.find(r => r.classId) || allMatching[0];
                             const mCode = record ? (record.morningCode === 'P' ? 'X' : record.morningCode) : '';
                             const aCode = record ? (record.afternoonCode === 'P' ? 'X' : record.afternoonCode) : '';
 
@@ -2674,7 +2696,10 @@
                                 isScheduledPm = p.schedule[`${dayOfWeek}-pm`];
                             }
 
-                            const record = monthAtt.find(r => r.participantId === p.id && r.date === dateStr);
+                            // Robust Record Finding (Handle Duplicates/Legacy)
+                            const allMatching = monthAtt.filter(r => r.participantId === p.id && r.date === dateStr);
+                            // Prioritize records with a classId (newer format), otherwise take the first found
+                            const record = allMatching.find(r => r.classId) || allMatching[0];
 
                             const mCode = record ? (record.morningCode === 'P' ? 'X' : record.morningCode) : '';
                             const aCode = record ? (record.afternoonCode === 'P' ? 'X' : record.afternoonCode) : '';
@@ -4634,8 +4659,8 @@
                 const selects = row.querySelectorAll('select');
                 const commentInput = row.querySelector('.attendance-comment');
 
-                const morningCode = selects[0]?.value || 'X';
-                const afternoonCode = selects[1]?.value || 'X';
+                const morningCode = selects[0]?.value || '';
+                const afternoonCode = selects[1]?.value || '';
                 const comment = commentInput ? commentInput.value.trim() : '';
 
                 // Validation: Comment required if code G is used
@@ -4690,6 +4715,65 @@
             } catch (error) {
                 console.error('Error saving attendance', error);
                 alert('Erreur lors de la sauvegarde.');
+            }
+        };
+
+        window.resetDayAttendance = async () => {
+            if (!currentClassId) return;
+            const date = document.getElementById('attendance-date').value;
+
+            if (!confirm(`Êtes-vous sûr de vouloir effacer TOUTES les présences pour la journée du ${date} ?\n\nCette action est irréversible.`)) {
+                return;
+            }
+
+            try {
+                // 1. Get all records for this class and date
+                const allAttendance = await dbService.getAll(STORES.ATTENDANCE);
+                const recordsToDelete = allAttendance.filter(r => r.classId === currentClassId && r.date === date);
+
+                // 2. Also check for the "check" record
+                const checkId = `check_${currentClassId}_${date}`;
+                const checkRecord = allAttendance.find(r => r.id === checkId);
+                if (checkRecord) recordsToDelete.push(checkRecord);
+
+                if (recordsToDelete.length === 0) {
+                    alert("Aucune donnée à effacer pour cette date.");
+                    return;
+                }
+
+                console.log(`🗑️ Deleting ${recordsToDelete.length} records for reset...`);
+
+                // 3. Delete them one by one
+                for (const record of recordsToDelete) {
+                    await dbService.delete(STORES.ATTENDANCE, record.id);
+                }
+
+                // 4. Reset UI
+                updateCheckIndicator(false);
+
+                // Reload grid (clears the View)
+                if (typeof loadAttendanceGrid === 'function') {
+                    // Get class again to be sure
+                    const classes = await classService.getAllClasses();
+                    const cls = classes.find(c => c.id === currentClassId);
+                    if (cls) loadAttendanceGrid(cls);
+                } else if (window.loadAttendanceGrid) {
+                    // Fallback
+                    const classes = await classService.getAllClasses();
+                    const cls = classes.find(c => c.id === currentClassId);
+                    if (cls) window.loadAttendanceGrid(cls);
+                }
+
+                // Refresh dashboard in background
+                if (window.renderDashboard) {
+                    setTimeout(() => window.renderDashboard(), 100);
+                }
+
+                alert("Journée réinitialisée avec succès.");
+
+            } catch (error) {
+                console.error('Error resetting day', error);
+                alert('Erreur lors de la suppression: ' + error.message);
             }
         };
 
@@ -5532,6 +5616,157 @@
                 alert('Erreur lors de l\'export : ' + error.message);
             }
         };
+        // Dashboard Cell Editing
+        window.app.editDashboardCell = async (participantId, date, period, currentCode, currentComment, className, classId) => {
+            // Create modal HTML
+            const modalHtml = `
+                <div id="modal-edit-attendance" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+                    <div style="background: white; padding: 2rem; border-radius: 12px; max-width: 500px; width: 90%;">
+                        <h3 style="margin-top: 0;">Modifier la présence</h3>
+                        <p style="color: #666; margin-bottom: 1.5rem;">
+                            <strong>Date:</strong> ${date}<br>
+                            <strong>Période:</strong> ${period === 'morning' ? 'Matin' : 'Après-midi'}<br>
+                            <strong>Classe:</strong> ${className}
+                        </p>
+                        
+                        <div style="margin-bottom: 1.5rem;">
+                            <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Code de présence</label>
+                            <select id="attendance-code-select" style="width: 100%; padding: 0.75rem; border: 1px solid #ddd; border-radius: 8px; font-size: 1rem;">
+                                <option value="" ${!currentCode ? 'selected' : ''}>-- (Vide) --</option>
+                                ${Object.values(window.ATTENDANCE_CODES).filter(c => c.code !== '').map(c => `
+                                    <option value="${c.code}" ${currentCode === c.code ? 'selected' : ''}>${c.code} - ${c.label}</option>
+                                `).join('')}
+                            </select>
+                        </div>
+                        
+                        <div id="comment-field" style="margin-bottom: 1.5rem; display: ${currentCode === 'G' ? 'block' : 'none'};">
+                            <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Commentaire (obligatoire pour code G)</label>
+                            <textarea id="attendance-comment" style="width: 100%; padding: 0.75rem; border: 1px solid #ddd; border-radius: 8px; font-size: 1rem; min-height: 80px; font-family: inherit;" placeholder="Précisez la raison...">${currentComment || ''}</textarea>
+                        </div>
+                        
+                        <div style="display: flex; gap: 1rem; justify-content: flex-end;">
+                            <button onclick="window.app.closeEditAttendanceModal()" class="btn-secondary">Annuler</button>
+                            <button onclick="window.app.saveAttendanceFromDashboard('${participantId}', '${date}', '${period}', '', '${classId}')" class="btn-primary">Enregistrer</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Remove existing modal if any
+            const existingModal = document.getElementById('modal-edit-attendance');
+            if (existingModal) existingModal.remove();
+
+            // Add modal to body
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+            // Add event listener to show/hide comment field
+            const codeSelect = document.getElementById('attendance-code-select');
+            const commentField = document.getElementById('comment-field');
+
+            codeSelect.addEventListener('change', (e) => {
+                if (e.target.value === 'G') {
+                    commentField.style.display = 'block';
+                } else {
+                    commentField.style.display = 'none';
+                }
+            });
+        };
+
+        window.app.closeEditAttendanceModal = () => {
+            const modal = document.getElementById('modal-edit-attendance');
+            if (modal) modal.remove();
+        };
+
+        window.app.saveAttendanceFromDashboard = async (participantId, date, period, className, classId) => {
+            console.log(`💾 Saving Dashboard: ${period} -> ${participantId} @ ${date} (Class: ${classId})`);
+            const codeSelect = document.getElementById('attendance-code-select');
+            const commentTextarea = document.getElementById('attendance-comment');
+
+            const code = codeSelect.value;
+            const comment = commentTextarea.value.trim();
+
+            // Validation for code G
+            if (code === 'G' && !comment) {
+                alert('Un commentaire est obligatoire pour le code G (Autres absences justifiées).\n\nVeuillez préciser la raison.');
+                return;
+            }
+
+            try {
+                // Get existing records
+                const allAttendance = await dbService.getAll(STORES.ATTENDANCE);
+
+                // Construct precise Target ID
+                const targetId = `${classId}_${date}_${participantId}`;
+
+                // 1. Try finding by Exact ID
+                let record = allAttendance.find(r => r.id === targetId);
+
+                // 2. If not found, try finding compatibility (same user/date/class)
+                if (!record) {
+                    record = allAttendance.find(r => r.participantId === participantId && r.date === date && r.classId === classId);
+                }
+
+                // 3. Fallback: Legacy records without classId
+                if (!record) {
+                    record = allAttendance.find(r => r.participantId === participantId && r.date === date && !r.classId);
+                    if (record) {
+                        console.log('⚠️ Updating legacy record with ClassID');
+                        record.classId = classId;
+                    }
+                }
+
+                if (!record) {
+                    console.log('✨ Creating new attendance record');
+                    record = {
+                        classId: classId,
+                        participantId,
+                        date,
+                        morningCode: '',
+                        afternoonCode: '',
+                        comment: ''
+                    };
+                }
+
+                // Apply changes strictly to the requested period
+                if (period === 'morning') {
+                    record.morningCode = code;
+                } else if (period === 'afternoon') {
+                    record.afternoonCode = code;
+                }
+
+                // Update comment
+                record.comment = comment;
+
+                // Save
+                // Ensure we use the correct service method if available (e.g. for Firebase)
+                if (window.attendanceService && window.attendanceService.saveAttendance) {
+                    // Note: attendanceService.saveAttendance handles ID generation: `${record.classId}_${record.date}_${record.participantId}`
+                    await window.attendanceService.saveAttendance([record]);
+                } else {
+                    // Fallback manual save
+                    if (!record.id) record.id = targetId;
+                    await dbService.update(STORES.ATTENDANCE, record);
+                }
+
+                window.app.closeEditAttendanceModal();
+
+                // Refresh Dashboard with scroll preservation
+                if (typeof renderDashboard === 'function') {
+                    const scrollPos = window.scrollY;
+                    await renderDashboard();
+                    window.scrollTo(0, scrollPos);
+                } else {
+                    window.location.reload();
+                }
+
+                console.log('✅ Saved successfully');
+
+            } catch (error) {
+                console.error('❌ Save error:', error);
+                alert('Erreur lors de la sauvegarde: ' + error.message);
+            }
+        };
+
     </script>
 
     <!-- Footer -->
@@ -5857,7 +6092,63 @@
                 } catch (error) { console.error('❌ Error saving attendances:', error); throw error; }
             }
 
-            // Generic getAll for backward compatibility
+            // Generic CRUD wrappers for compatibility with jsonDbService interface
+            async get(storeName, id) {
+                const all = await this.getAll(storeName);
+                return all.find(i => i.id === id);
+            }
+
+            async add(storeName, item) {
+                return this.update(storeName, item);
+            }
+
+            async update(storeName, item) {
+                let savedItem;
+                switch (storeName) {
+                    case 'participants':
+                        savedItem = (await this.saveParticipant(item)).participant || item;
+                        break;
+                    case 'classes':
+                        savedItem = await this.saveClass(item);
+                        break;
+                    case 'attendances':
+                    case 'attendance':
+                        await this.saveAttendances([item]);
+                        savedItem = item;
+                        break;
+                    case 'signatures':
+                        savedItem = await this.saveSignature(item);
+                        break;
+                    case 'archivedParticipants':
+                        savedItem = await this.saveArchivedParticipant(item);
+                        break;
+                    default:
+                        console.warn(`Update called on unknown store: ${storeName}`);
+                        throw new Error(`Unknown store: ${storeName}`);
+                }
+                return savedItem ? savedItem.id : item.id;
+            }
+
+            async delete(storeName, id) {
+                switch (storeName) {
+                    case 'participants': return this.deleteParticipant(id);
+                    case 'classes': return this.deleteClass(id);
+                    case 'attendances':
+                    case 'attendance':
+                        // Delete attendance not implemented explicitly in Adapter but needed
+                        await this.init();
+                        try {
+                            await deleteDoc(doc(db, 'attendances', id));
+                            this.cache.attendances = this.cache.attendances.filter(a => a.id !== id);
+                        } catch (e) { console.error(e); }
+                        break;
+                    case 'signatures': return this.deleteSignature(id);
+                    case 'archivedParticipants': return this.deleteArchivedParticipant(id);
+                    default:
+                        console.warn(`Delete called on unknown store: ${storeName}`);
+                }
+            }
+
             async getAll(storeName) {
                 switch (storeName) {
                     case 'participants': return this.getParticipants();
