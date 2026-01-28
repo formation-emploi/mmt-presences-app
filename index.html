@@ -3925,8 +3925,27 @@
                     return;
                 }
 
-                // Sort participants
-                targetParticipants.sort((a, b) => a.lastName.localeCompare(b.lastName));
+                // Mapping codes Caisses (Definition early for sorting)
+                const CAISSE_MAPPING_SORT = {
+                    '49 - 000': 'Caisse de chômage CSI, Porrentruy',
+                    '26 - 000': 'Caisse Cantonale Jura, Saignelégier',
+                    '57 - 010': 'Syna Caisse de chômage, Olten',
+                    '60 - 321': 'Unia Caisse de chômage (321), Lausanne',
+                    '60 - 323': 'Unia Caisse de chômage (323), Lausanne'
+                };
+
+                // Sort participants: Caisse (Mapped Name) then Name
+                targetParticipants.sort((a, b) => {
+                    const rawA = (a.unemploymentOffice || '').trim();
+                    const rawB = (b.unemploymentOffice || '').trim();
+
+                    const caisseA = (CAISSE_MAPPING_SORT[rawA] || rawA).toLowerCase();
+                    const caisseB = (CAISSE_MAPPING_SORT[rawB] || rawB).toLowerCase();
+
+                    if (caisseA < caisseB) return -1;
+                    if (caisseA > caisseB) return 1;
+                    return a.lastName.localeCompare(b.lastName);
+                });
 
                 // Check if we need a template
                 const needsTemplate = targetParticipants.some(p => !p.originalPdf || p.originalPdf.byteLength === 0);
@@ -3977,6 +3996,8 @@
                 let missingPdfCount = 0;
                 const missingPdfNames = [];
                 const generationErrors = [];
+                const summaryList = []; // Liste pour la page de synthèse
+                console.log('reset summaryList');
 
                 console.log('🏁 Démarrage export PDF avec SignatureID:', signatureId);
 
@@ -4022,6 +4043,13 @@
 
                     try {
                         const filledBytes = await window.pdfGenerator.generatePDF(p, pAttendance, templateToUse, signatureDate, isCorrection, signatureId);
+                        // Ajouter au sommaire
+                        console.log(`Adding ${p.lastName} to summary list. Caisse: ${p.unemploymentOffice}`);
+                        summaryList.push({
+                            name: `${p.lastName} ${p.firstName}`,
+                            caisse: p.unemploymentOffice || '-'
+                        });
+
                         const filledPdf = await PDFLib.PDFDocument.load(filledBytes);
                         const copiedPages = await mergedPdf.copyPages(filledPdf, filledPdf.getPageIndices());
                         copiedPages.forEach((page) => mergedPdf.addPage(page));
@@ -4047,6 +4075,136 @@
 
                 // Hide Progress
                 window.app.hideProgress();
+
+                // --- GÉNÉRATION DE LA PAGE DE SYNTHÈSE ---
+                if (summaryList.length > 0) {
+                    try {
+                        let summaryPage = mergedPdf.addPage();
+                        const { width, height } = summaryPage.getSize();
+                        // Verify height (A4 is usually 841.89)
+                        const safeHeight = height || 842;
+
+                        const font = await mergedPdf.embedFont(PDFLib.StandardFonts.Helvetica);
+                        const fontBold = await mergedPdf.embedFont(PDFLib.StandardFonts.HelveticaBold);
+
+                        let currentY = safeHeight - 50;
+
+                        // Titre
+                        summaryPage.drawText('Récapitulatif - Liste des Caisses de Chômage / MMT', {
+                            x: 50,
+                            y: currentY,
+                            size: 16,
+                            font: fontBold
+                        });
+
+                        currentY -= 20;
+                        const nowStr = new Date().toLocaleDateString('fr-CH');
+                        summaryPage.drawText(`Généré le: ${nowStr}`, {
+                            x: 50,
+                            y: currentY,
+                            size: 10,
+                            font: font
+                        });
+
+                        currentY -= 40;
+
+                        // Mapping codes Caisses
+                        const CAISSE_MAPPING = {
+                            '49 - 000': 'Caisse de chômage CSI, Porrentruy',
+                            '26 - 000': 'Caisse Cantonale Jura, Saignelégier',
+                            '57 - 010': 'Syna Caisse de chômage, Olten',
+                            '60 - 321': 'Unia Caisse de chômage (321), Lausanne',
+                            '60 - 323': 'Unia Caisse de chômage (323), Lausanne'
+                        };
+
+                        // Regroupement par Caisse
+                        const groups = {};
+                        summaryList.forEach(item => {
+                            let rawCaisse = (item.caisse || 'Non défini').trim();
+
+                            // Normalisation simple du code (enlève tout sauf chiffres et tiret)
+                            // ex: "60 - 321" ou "60-321" -> on garde tel quel si c'est propre
+
+                            // Tentative de mapping
+                            let displayCaisse = CAISSE_MAPPING[rawCaisse] || rawCaisse;
+
+                            if (displayCaisse === '' || displayCaisse === '-') displayCaisse = 'Non défini';
+                            if (!groups[displayCaisse]) groups[displayCaisse] = [];
+                            groups[displayCaisse].push(item);
+                        });
+
+                        const sortedCaisses = Object.keys(groups).sort((a, b) => a.localeCompare(b));
+
+                        for (const caisse of sortedCaisses) {
+                            // Vérifier espace pour le titre de groupe (besoin d'au moins 40px)
+                            if (currentY < 60) {
+                                summaryPage = mergedPdf.addPage();
+                                currentY = safeHeight - 50;
+                                // Titre de rappel
+                                summaryPage.drawText('Récapitulatif (suite)', { x: 50, y: currentY, size: 10, font: font });
+                                currentY -= 30;
+                            }
+
+                            // Titre du groupe (Caisse)
+                            // Fond gris léger pour le header de groupe
+                            summaryPage.drawRectangle({
+                                x: 40,
+                                y: currentY - 5,
+                                width: 520,
+                                height: 20,
+                                color: PDFLib.rgb(0.9, 0.9, 0.9),
+                            });
+
+                            summaryPage.drawText(`${caisse}`, { // Modifié: Suppression emoji
+                                x: 50,
+                                y: currentY,
+                                size: 11,
+                                font: fontBold,
+                                color: PDFLib.rgb(0, 0, 0)
+                            });
+
+                            currentY -= 25;
+
+                            // Liste des participants du groupe
+                            const participants = groups[caisse].sort((a, b) => a.name.localeCompare(b.name));
+
+                            for (const p of participants) {
+                                if (currentY < 40) {
+                                    summaryPage = mergedPdf.addPage();
+                                    currentY = safeHeight - 50;
+                                    summaryPage.drawText('Récapitulatif (suite)', { x: 50, y: currentY, size: 10, font: font });
+                                    currentY -= 30;
+
+                                    // Rappel du titre du groupe sur nouvelle page
+                                    summaryPage.drawText(`${caisse} (suite)`, { // Modifié: Suppression emoji
+                                        x: 50,
+                                        y: currentY,
+                                        size: 11,
+                                        font: fontBold,
+                                        color: PDFLib.rgb(0.4, 0.4, 0.4)
+                                    });
+                                    currentY -= 20;
+                                }
+
+                                summaryPage.drawText(`- ${p.name || 'Nom inconnu'}`, { // Modifié: Remplacement bullet par tiret
+                                    x: 70, // Indentation
+                                    y: currentY,
+                                    size: 10,
+                                    font: font,
+                                    color: PDFLib.rgb(0, 0, 0)
+                                });
+                                currentY -= 15;
+                            }
+
+                            currentY -= 10; // Espace entre les groupes
+                        }
+
+                        console.log('✅ Page de synthèse ajoutée (groupée par caisse)');
+
+                    } catch (e) {
+                        console.error('Erreur lors de la création de la page de synthèse:', e);
+                    }
+                }
 
                 const mergedBytes = await mergedPdf.save();
                 const blob = new Blob([mergedBytes], { type: 'application/pdf' });

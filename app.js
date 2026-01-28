@@ -36,12 +36,14 @@ const dbService = {
             } else {
                 console.warn('⚠️ No database file found (404), starting with empty DB.');
             }
-        } catch (e) {
-            console.error('❌ Error loading JSON DB:', e);
-            alert('Attention: Impossible de charger la base de données. Mode hors ligne ou erreur réseau.');
         }
-        return this.data;
-    },
+        } catch(error) {
+        console.warn('Init error:', error);
+    }
+        
+        await this.archiveExpiredParticipants();
+    return this.data;
+},
 
     async save() {
         console.log('💾 Saving to SharePoint/OneDrive...');
@@ -81,40 +83,79 @@ const dbService = {
         }
     },
 
-    // CRUD Wrappers
-    async getAll(storeName) {
-        return this.data[storeName] || [];
-    },
+        async archiveExpiredParticipants() {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-    async get(storeName, id) {
-        const store = this.data[storeName] || [];
-        return store.find(item => item.id === id);
-    },
+    // Keep active until the end of the current month
+    // Archive only if endDate is strictly before the 1st of the current month
+    const archiveThreshold = new Date(today.getFullYear(), today.getMonth(), 1);
 
-    async add(storeName, item) {
-        if (!this.data[storeName]) this.data[storeName] = [];
-        this.data[storeName].push(item);
-        await this.save();
-        return item.id;
-    },
+    if (!this.data.participants) return;
 
-    async update(storeName, item) {
-        if (!this.data[storeName]) this.data[storeName] = [];
-        const index = this.data[storeName].findIndex(i => i.id === item.id);
-        if (index !== -1) {
-            this.data[storeName][index] = item;
-        } else {
-            this.data[storeName].push(item);
-        }
-        await this.save();
-        return item.id;
-    },
+    const toArchive = this.data.participants.filter(p => {
+        if (!p.dateEnd) return false;
+        const endDate = new Date(p.dateEnd);
+        return endDate < archiveThreshold;
+    });
 
-    async delete(storeName, id) {
-        if (!this.data[storeName]) return;
-        this.data[storeName] = this.data[storeName].filter(i => i.id !== id);
+    if (toArchive.length > 0) {
+        console.log(`📦 Archiving ${toArchive.length} expired participant(s)`);
+
+        if (!this.data.archivedParticipants) this.data.archivedParticipants = [];
+
+        // Add to archive (checking unicity just in case)
+        toArchive.forEach(p => {
+            if (!this.data.archivedParticipants.find(ap => ap.id === p.id)) {
+                this.data.archivedParticipants.push(p);
+            }
+        });
+
+        // Remove from active
+        this.data.participants = this.data.participants.filter(p => {
+            if (!p.dateEnd) return true;
+            const endDate = new Date(p.dateEnd);
+            return endDate >= archiveThreshold;
+        });
+
         await this.save();
     }
+},
+
+    // CRUD Wrappers
+    async getAll(storeName) {
+    return this.data[storeName] || [];
+},
+
+    async get(storeName, id) {
+    const store = this.data[storeName] || [];
+    return store.find(item => item.id === id);
+},
+
+    async add(storeName, item) {
+    if (!this.data[storeName]) this.data[storeName] = [];
+    this.data[storeName].push(item);
+    await this.save();
+    return item.id;
+},
+
+    async update(storeName, item) {
+    if (!this.data[storeName]) this.data[storeName] = [];
+    const index = this.data[storeName].findIndex(i => i.id === item.id);
+    if (index !== -1) {
+        this.data[storeName][index] = item;
+    } else {
+        this.data[storeName].push(item);
+    }
+    await this.save();
+    return item.id;
+},
+
+    async delete (storeName, id) {
+    if (!this.data[storeName]) return;
+    this.data[storeName] = this.data[storeName].filter(i => i.id !== id);
+    await this.save();
+}
 };
 
 // Participant Service
@@ -556,8 +597,10 @@ async function renderDashboard() {
                     };
 
                     // Add tooltip for code G
+                    // Escape comment for HTML attribute
+                    const safeComment = comment ? comment.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
                     const tooltipClass = (mCode === 'G' && comment) ? 'code-g-tooltip' : '';
-                    const tooltipAttr = (mCode === 'G' && comment) ? `data-comment="${comment}"` : '';
+                    const tooltipAttr = (mCode === 'G' && comment) ? `data-comment="${safeComment}"` : '';
 
                     // Interruption Logic
                     let cellContentM = mCode || '';
@@ -579,7 +622,7 @@ async function renderDashboard() {
                     rowMatin += `<td class="${weekendClass} ${getCellClass(mCode, isScheduledAm)} ${tooltipClass}" ${tooltipAttr}>${cellContentM}</td>`;
 
                     const tooltipClassAm = (aCode === 'G' && comment) ? 'code-g-tooltip' : '';
-                    const tooltipAttrAm = (aCode === 'G' && comment) ? `data-comment="${comment}"` : '';
+                    const tooltipAttrAm = (aCode === 'G' && comment) ? `data-comment="${safeComment}"` : '';
                     rowAprem += `<td class="${weekendClass} ${getCellClass(aCode, isScheduledPm)} ${tooltipClassAm}" ${tooltipAttrAm} style="border-bottom: 2px solid #e0e0e0;">${cellContentA}</td>`;
                 }
 
@@ -1269,7 +1312,16 @@ window.app.confirmPrintSelection = async () => {
         const generationErrors = [];
 
         // Sort participants
-        targetParticipants.sort((a, b) => a.lastName.localeCompare(b.lastName));
+        // Sort participants: Caisse then Name
+        targetParticipants.sort((a, b) => {
+            const caisseA = (a.unemploymentOffice || '').toLowerCase();
+            const caisseB = (b.unemploymentOffice || '').toLowerCase();
+            if (caisseA < caisseB) return -1;
+            if (caisseA > caisseB) return 1;
+            return a.lastName.localeCompare(b.lastName);
+        });
+
+        const summaryList = []; // Liste pour la page de synthèse
 
         for (const p of targetParticipants) {
             if (!p.originalPdf) {
@@ -1295,6 +1347,12 @@ window.app.confirmPrintSelection = async () => {
                 const copiedPages = await mergedPdf.copyPages(filledPdf, filledPdf.getPageIndices());
                 copiedPages.forEach((page) => mergedPdf.addPage(page));
                 processedCount++;
+
+                // Ajouter au sommaire
+                summaryList.push({
+                    name: `${p.lastName} ${p.firstName}`,
+                    caisse: p.unemploymentOffice || '-'
+                });
             } catch (err) {
                 console.error(`Error processing ${p.lastName}:`, err);
                 generationErrors.push(`${p.firstName} ${p.lastName}: ${err.message}`);
@@ -1307,6 +1365,116 @@ window.app.confirmPrintSelection = async () => {
             if (generationErrors.length > 0) msg += '\n\n❌ Erreurs :\n- ' + generationErrors.join('\n- ');
             alert(msg);
             return;
+        }
+
+        // --- GÉNÉRATION DE LA PAGE DE SYNTHÈSE ---
+        if (summaryList.length > 0) {
+            try {
+                let summaryPage = mergedPdf.addPage();
+                const { width, height } = summaryPage.getSize();
+                const font = await mergedPdf.embedFont(PDFLib.StandardFonts.Helvetica);
+                const fontBold = await mergedPdf.embedFont(PDFLib.StandardFonts.HelveticaBold);
+
+                let currentY = height - 50;
+
+                // Titre
+                summaryPage.drawText('Récapitulatif - Liste des Caisses de Chômage / MMT', {
+                    x: 50,
+                    y: currentY,
+                    size: 16,
+                    font: fontBold
+                });
+
+                currentY -= 20;
+                const nowStr = new Date().toLocaleDateString('fr-CH');
+                summaryPage.drawText(`Généré le: ${nowStr}`, {
+                    x: 50,
+                    y: currentY,
+                    size: 10,
+                    font: font
+                });
+
+                currentY -= 40;
+
+                // Regroupement par Caisse
+                const groups = {};
+                summaryList.forEach(item => {
+                    let c = (item.caisse || 'Non défini').trim();
+                    if (c === '' || c === '-') c = 'Non défini';
+                    if (!groups[c]) groups[c] = [];
+                    groups[c].push(item);
+                });
+
+                const sortedCaisses = Object.keys(groups).sort((a, b) => a.localeCompare(b));
+
+                for (const caisse of sortedCaisses) {
+                    // Vérifier espace pour le titre de groupe (besoin d'au moins 40px)
+                    if (currentY < 60) {
+                        summaryPage = mergedPdf.addPage();
+                        currentY = height - 50;
+                        // Titre de rappel
+                        summaryPage.drawText('Récapitulatif (suite)', { x: 50, y: currentY, size: 10, font: font });
+                        currentY -= 30;
+                    }
+
+                    // Titre du groupe (Caisse)
+                    // Fond gris léger pour le header de groupe
+                    summaryPage.drawRectangle({
+                        x: 40,
+                        y: currentY - 5,
+                        width: 520,
+                        height: 20,
+                        color: PDFLib.rgb(0.9, 0.9, 0.9),
+                    });
+
+                    summaryPage.drawText(`📂 ${caisse}`, {
+                        x: 50,
+                        y: currentY,
+                        size: 11,
+                        font: fontBold,
+                        color: PDFLib.rgb(0, 0, 0)
+                    });
+
+                    currentY -= 25;
+
+                    // Liste des participants du groupe
+                    const participants = groups[caisse].sort((a, b) => a.name.localeCompare(b.name));
+
+                    for (const p of participants) {
+                        if (currentY < 40) {
+                            summaryPage = mergedPdf.addPage();
+                            currentY = height - 50;
+                            summaryPage.drawText('Récapitulatif (suite)', { x: 50, y: currentY, size: 10, font: font });
+                            currentY -= 30;
+
+                            // Rappel du titre du groupe sur nouvelle page
+                            summaryPage.drawText(`📂 ${caisse} (suite)`, {
+                                x: 50,
+                                y: currentY,
+                                size: 11,
+                                font: fontBold,
+                                color: PDFLib.rgb(0.4, 0.4, 0.4)
+                            });
+                            currentY -= 20;
+                        }
+
+                        summaryPage.drawText(`• ${p.name}`, {
+                            x: 70, // Indentation
+                            y: currentY,
+                            size: 10,
+                            font: font
+                        });
+                        currentY -= 15;
+                    }
+
+                    currentY -= 10; // Espace entre les groupes
+                }
+
+                console.log('✅ Page de synthèse ajoutée (groupée par caisse)');
+
+            } catch (e) {
+                console.error('Erreur lors de la création de la page de synthèse:', e);
+            }
         }
 
         const mergedBytes = await mergedPdf.save();
