@@ -10,7 +10,6 @@
     <script src="resources/pdf.min.js"
         onerror="this.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'"></script>
     <script src="resources/pdf-lib.min.js" onerror="this.src='https://unpkg.com/pdf-lib/dist/pdf-lib.min.js'"></script>
-    <script type="module" src="firebase-adapter.js"></script>
     <script>
         // Fallback for Worker if local fails
         function setupPdfWorker() {
@@ -589,9 +588,9 @@
                 style="background: #dc2626; color: white; border: none;" title="Se déconnecter">
                 🚪 Déconnexion
             </button>
-            <button onclick="window.app.clearTemplate()" class="btn-secondary btn-sm"
-                style="background: #6c757d; color: white; border: none;" title="Changer le template PDF">
-                📄 Template
+            <button onclick="window.app.uploadGlobalTemplate()" class="btn-secondary btn-sm"
+                style="background: #6c757d; color: white; border: none;" title="Définir le modèle PDF global">
+                📄 Définir Modèle
             </button>
         </div>
     </nav>
@@ -696,10 +695,12 @@
                     <button id="btn-back-classes" class="btn-secondary">&larr;</button>
                     <h1 id="class-details-title">Détails Classe</h1>
                 </div>
-                <button onclick="window.app.openManageParticipantsModal()" class="btn-secondary">👥 Gérer
-                    Participants</button>
-                <button onclick="window.app.exportClassToExcel(currentClassId)" class="btn-secondary"
-                    style="margin-left:0.5rem;" title="Exporter en CSV pour Excel">Liste CSV</button>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button onclick="window.app.exportClassCSV()" class="btn-secondary"
+                        title="Exporter les heures totales (Tout mois confondus)">Export CSV</button>
+                    <button onclick="window.app.openManageParticipantsModal()" class="btn-secondary">👥 Gérer
+                        Participants</button>
+                </div>
             </div>
 
             <div class="tabs">
@@ -719,6 +720,10 @@
 
                     </div>
                     <div style="display: flex; align-items: center;">
+                        <button class="btn-secondary" style="color: #d32f2f; border-color: #d32f2f; margin-right: 10px;"
+                            onclick="window.resetDayAttendance()" title="Effacer toutes les saisies pour ce jour">
+                            🗑️ Effacer journée
+                        </button>
                         <button class="btn-primary" style="padding: 1rem 2rem; font-size: 1.1rem;"
                             onclick="window.saveAttendance()">
                             Présences contrôlées
@@ -756,10 +761,6 @@
                 <div class="form-group">
                     <label>% de Travail</label>
                     <input type="number" id="p-work-percent" min="0" max="100" value="100">
-                </div>
-                <div class="form-group">
-                    <label>Caisse de chômage</label>
-                    <input type="text" id="p-unemployment-office" placeholder="Ex: Caisse Cantonale, Unia...">
                 </div>
                 <div class="form-group">
                     <label>Date de début</label>
@@ -927,7 +928,8 @@
             <div class="form-group" style="padding-top: 1rem; border-top: 1px dashed #eee; margin-top: 1rem;">
                 <label><strong>✍️ Signature</strong></label>
                 <div style="display: flex; gap: 0.5rem; align-items: center; margin-top: 0.5rem;">
-                    <select id="select-signature" style="flex: 1; padding: 0.5rem; font-size: 1rem;">
+                    <select id="select-signature" style="flex: 1; padding: 0.5rem; font-size: 1rem;"
+                        onfocus="window.app.reloadSignatures()">
                         <option value="">Aucune signature</option>
                         <!-- Signatures will be loaded here -->
                     </select>
@@ -936,6 +938,54 @@
                         ⚙️
                     </button>
                 </div>
+                <!-- Mini helper script to reload signatures -->
+                <script>
+                    (function () {
+                        // Ensure window.app exists
+                        window.app = window.app || {};
+
+                        // Define reloadSignatures
+                        window.app.reloadSignatures = async () => {
+                            const select = document.getElementById('select-signature');
+                            if (!select) return;
+
+                            // Save current selection if any
+                            const currentVal = select.value;
+
+                            select.innerHTML = '<option value="">Aucune signature</option>';
+                            try {
+                                // Try to get signatures from dbService
+                                let signatures = [];
+                                if (window.dbService) {
+                                    if (window.dbService.getSignatures) signatures = await window.dbService.getSignatures();
+                                    else if (window.dbService.getAll) signatures = await window.dbService.getAll('signatures');
+                                    else if (window.dbService.data && window.dbService.data.signatures) signatures = window.dbService.data.signatures;
+                                }
+
+                                signatures.forEach(s => {
+                                    const opt = document.createElement('option');
+                                    opt.value = s.id;
+                                    opt.textContent = s.name || 'Signature sans nom';
+                                    select.appendChild(opt);
+                                });
+
+                                // Restore selection if it still exists
+                                if (currentVal && Array.from(select.options).some(o => o.value === currentVal)) {
+                                    select.value = currentVal;
+                                }
+                            } catch (e) { console.warn('Erreur chargement signatures', e); }
+                        };
+
+                        // Initial load
+                        // Wait for DOM and main app initialization
+                        window.addEventListener('load', () => {
+                            setTimeout(() => {
+                                if (window.app.reloadSignatures) window.app.reloadSignatures();
+                            }, 1000);
+                        });
+                    })();
+                </script>
+
                 <div id="signature-preview"
                     style="margin-top: 0.5rem; padding: 0.5rem; background: #f9f9f9; border-radius: 4px; min-height: 40px; display: none;">
                     <img id="signature-preview-img" style="max-width: 100%; max-height: 60px; display: block;" />
@@ -1036,86 +1086,6 @@
         </div>
     </div>
 
-    <!-- Modal Date Selection (Signature) -->
-    <div id="modal-date-selection" class="modal" style="z-index: 2200;">
-        <div style="max-width: 400px;">
-            <h2>📅 Date de signature</h2>
-            <p style="margin-bottom: 1.5rem; color: #666;">Veuillez choisir ou saisir la date de signature.</p>
-
-            <div class="form-group">
-                <label>Date de signature</label>
-                <input type="date" id="input-signature-date" style="font-size: 1.1rem; padding: 0.5rem;">
-            </div>
-
-            <!-- Signature Selection -->
-            <div class="form-group" style="padding-top: 1rem; border-top: 1px dashed #eee; margin-top: 1rem;">
-                <label><strong>✍️ Signature</strong></label>
-                <div style="display: flex; gap: 0.5rem; align-items: center; margin-top: 0.5rem;">
-                    <select id="select-signature" style="flex: 1; padding: 0.5rem; font-size: 1rem;"
-                        onfocus="window.app.reloadSignatures()">
-                        <option value="">Aucune signature</option>
-                        <!-- Signatures will be loaded here -->
-                    </select>
-                    <button type="button" class="btn-secondary btn-sm" onclick="window.app.openSignatureManager()"
-                        title="Gérer les signatures">
-                        ⚙️
-                    </button>
-                </div>
-                <!-- Mini helper script to reload signatures -->
-                <script>
-                    window.app = window.app || {};
-                    window.app.reloadSignatures = async () => {
-                        const select = document.getElementById('select-signature');
-                        if (!select) return;
-                        select.innerHTML = '<option value="">Aucune signature</option>';
-                        try {
-                            // Try to get signatures from dbService
-                            let signatures = [];
-                            if (window.dbService) {
-                                if (window.dbService.getSignatures) signatures = await window.dbService.getSignatures();
-                                else if (window.dbService.getAll) signatures = await window.dbService.getAll('signatures');
-                                else if (window.dbService.data && window.dbService.data.signatures) signatures = window.dbService.data.signatures;
-                            }
-
-                            signatures.forEach(s => {
-                                const opt = document.createElement('option');
-                                opt.value = s.id;
-                                opt.textContent = s.name || 'Signature sans nom';
-                                select.appendChild(opt);
-                            });
-                        } catch (e) { console.warn('Erreur chargement signatures', e); }
-                    };
-                    // Load on init if possible
-                    setTimeout(() => { if (window.app.reloadSignatures) window.app.reloadSignatures(); }, 2000);
-                </script>
-
-                <div id="signature-preview"
-                    style="margin-top: 0.5rem; padding: 0.5rem; background: #f9f9f9; border-radius: 4px; min-height: 40px; display: none;">
-                    <img id="signature-preview-img-modal" style="max-width: 100%; max-height: 60px; display: block;" />
-                </div>
-            </div>
-
-            <div class="form-group" style="margin-top: 1rem; padding: 1rem; background: #fff3cd; border-radius: 8px;">
-                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                    <input type="checkbox" id="input-is-correction">
-                    <strong>Cocher "Correction"</strong>
-                </label>
-                <p style="font-size: 0.85rem; color: #856404; margin-top: 0.5rem;">
-                    Cochez cette case si ce document est une correction d'un envoi précédent.
-                </p>
-            </div>
-
-            <div class="form-actions">
-                <button class="btn-secondary" onclick="window.app.resolveDateSelection(null)">Annuler</button>
-                <button class="btn-primary" onclick="window.app.resolveDateSelection({ 
-                    date: document.getElementById('input-signature-date').value,
-                    isCorrection: document.getElementById('input-is-correction').checked,
-                    signatureId: document.getElementById('select-signature').value
-                })">Valider</button>
-            </div>
-        </div>
-    </div>
-
     <!-- Modal Upload Signature -->
     <div id="modal-signature-upload" class="modal" style="z-index: 2100;">
         <div style="max-width: 500px;">
@@ -1165,56 +1135,7 @@
         // Initialize global app object
         window.app = window.app || {};
 
-        /**
-         * Attendance Service
-         */
-        const ATTENDANCE_CODES = {
-            '': { code: '', label: '(Vide)', description: 'Effacer / Aucune sélection', requiresComment: false },
-            'X': { code: 'X', label: 'Sur place', description: 'PARTICIPATION SUR PLACE : le participant est présent', requiresComment: false },
-            'O': { code: 'O', label: 'En ligne', description: 'PARTICIPATION EN LIGNE', requiresComment: false },
-            'A': { code: 'A', label: 'Vacances', description: 'VACANCES : jours sans contrôle accordés par l\'ORP', requiresComment: false },
-            'B': { code: 'B', label: 'Maladie/Grossesse', description: 'MALADIE, GROSSESSE : certificat médical requis', requiresComment: false },
-            'C': { code: 'C', label: 'Accident', description: 'ACCIDENT : certificat médical requis dès le 4e jour', requiresComment: false },
-            'D': { code: 'D', label: 'Congé maternité/parental', description: 'CONGÉ MATERNITÉ, CONGÉ DE L\'AUTRE PARENT', requiresComment: false },
-            'E': { code: 'E', label: 'Service militaire/civil', description: 'SERVICE MILITAIRE, SERVICE CIVIL', requiresComment: false },
-            'F': { code: 'F', label: 'Gain intermédiaire', description: 'GAIN INTERMÉDIAIRE : auprès d\'un employeur', requiresComment: false },
-            'G': { code: 'G', label: 'Autres absences justifiées', description: 'AUTRES ABSENCES JUSTIFIÉES AVEC INDEMNITÉ DE CHÔMAGE', requiresComment: true },
-            'H': { code: 'H', label: 'Jours fériés/Fermeture', description: 'JOURS FÉRIÉS, VACANCES D\'ENTREPRISE', requiresComment: false },
-            'I': { code: 'I', label: 'Absence non justifiée', description: 'ABSENCES NON JUSTIFIÉES', requiresComment: false }
-        };
 
-        class AttendanceService {
-            async saveAttendance(attendanceRecords) {
-                const promises = attendanceRecords.map(record => {
-                    const id = `${record.classId}_${record.date}_${record.participantId}`;
-                    const item = { ...record, id };
-                    return dbService.update(STORES.ATTENDANCE, item);
-                });
-                return Promise.all(promises);
-            }
-
-            async getAttendance(classId, date) {
-                const all = await dbService.getAll(STORES.ATTENDANCE);
-                return all.filter(r => r.classId === classId && r.date === date);
-            }
-
-            async markAsChecked(classId, date) {
-                const checkId = `check_${classId}_${date}`;
-                const data = { id: checkId, classId, date, checked: true, checkedAt: new Date().toISOString() };
-                return await dbService.update(STORES.ATTENDANCE, data);
-            }
-
-            async isChecked(classId, date) {
-                const checkId = `check_${classId}_${date}`;
-                try {
-                    const allRecords = await dbService.getAll(STORES.ATTENDANCE);
-                    const record = allRecords.find(r => r.id === checkId);
-                    return record && record.checked;
-                } catch (error) { return false; }
-            }
-        }
-        window.attendanceService = new AttendanceService();
-        window.ATTENDANCE_CODES = ATTENDANCE_CODES;
 
 
         /**
@@ -1384,7 +1305,12 @@
                 if (signatureId) {
                     console.log('🔍 DEBUG: Tentative de chargement de la signature:', signatureId);
                     try {
-                        const signatures = await dbService.getAll('signatures');
+                        let signatures = [];
+                        if (dbService.getSignatures) {
+                            signatures = await dbService.getSignatures();
+                        } else if (dbService.getAll) {
+                            signatures = await dbService.getAll('signatures');
+                        }
                         console.log('🔍 DEBUG: Signatures trouvées:', signatures.length, signatures.map(s => s.id));
                         const signature = signatures.find(s => s.id === signatureId);
                         console.log('🔍 DEBUG: Signature sélectionnée:', signature ? 'Trouvée' : 'NON TROUVÉE');
@@ -1652,111 +1578,571 @@
         const STORES = {
             PARTICIPANTS: 'participants',
             CLASSES: 'classes',
-            ATTENDANCE: 'attendance'
+            ATTENDANCE: 'attendances'
         };
+        window.STORES = STORES;
 
         // Database Service (SharePoint/JSON Mode with LocalStorage Fallback)
-        const dbService = {
-            // Local cache to satisfy legacy synchronous access (e.g. renderDashboard)
-            data: { participants: [], classes: [], attendance: [], archivedParticipants: [] },
-
-            // FIREBASE ADAPTER CONFIGURATION
-            // This replaces the local/SharePoint dbService
-
-            async getAll(storeName) {
-                if (storeName === STORES.PARTICIPANTS) return await window.firebaseStorage.getParticipants();
-                if (storeName === STORES.CLASSES) return await window.firebaseStorage.getClasses();
-                if (storeName === STORES.ATTENDANCE) return await window.firebaseStorage.getAttendances();
-                return [];
+        const jsonDbService = {
+            data: {
+                participants: [],
+                classes: [],
+                attendances: [],
+                archivedParticipants: [],
+                signatures: []
             },
+            jsonUrl: 'mmt_db.json',
+            storageKey: 'mmt_db_backup',
 
-            async get(storeName, id) {
-                const all = await this.getAll(storeName);
-                return all.find(item => item.id === id);
-            },
-
-            async add(storeName, item) {
-                if (storeName === STORES.PARTICIPANTS) return await window.firebaseStorage.saveParticipant(item);
-                if (storeName === STORES.CLASSES) return await window.firebaseStorage.saveClass(item);
-                if (storeName === STORES.ATTENDANCE) {
-                    await window.firebaseStorage.saveAttendances([item]);
-                    return item.id;
-                }
-            },
-
-            async update(storeName, item) {
-                return await this.add(storeName, item);
-            },
-
-            async delete(storeName, id) {
-                if (storeName === STORES.PARTICIPANTS) return await window.firebaseStorage.deleteParticipant(id);
-                if (storeName === STORES.CLASSES) return await window.firebaseStorage.deleteClass(id);
-            },
-
-            async getSignatures() {
-                try { return []; } catch (e) { return []; }
-            },
+            // FLAG: Use SharePoint Lists Backend?
+            useSharePointLists: false,
+            baseUrl: '',
 
             async init() {
-                console.log('🔥 Initializing Firebase DB Service...');
-                if (window.firebaseStorage) {
-                    await window.firebaseStorage.init();
+                console.log('🔄 Initializing DB Service...');
 
-                    // Sync local data cache with Firebase cache to prevent crashes in legacy code
-                    if (window.firebaseStorage.cache) {
-                        this.data.participants = window.firebaseStorage.cache.participants || [];
-                        this.data.classes = window.firebaseStorage.cache.classes || [];
-                        this.data.attendance = window.firebaseStorage.cache.attendances || [];
-                        // Firebase adapter doesn't explicitly separate archived yet, so keep empty or filter
-                        this.data.archivedParticipants = [];
+                // 1. Detect SharePoint Environment & Site URL
+                this.baseUrl = await this.detectBaseUrl();
+
+                if (this.baseUrl || this.baseUrl === '') {
+                    try {
+                        const spContext = await fetch(`${this.baseUrl}_api/contextinfo`, {
+                            method: 'POST',
+                            headers: { 'Accept': 'application/json;odata=verbose' }
+                        });
+                        if (spContext.ok) {
+                            this.useSharePointLists = true;
+                            console.log(`🌐 SharePoint Environment Detected at ${this.baseUrl}`);
+                            this.updateStatus('connected');
+                            await this.loadFromSharePointLists();
+                            if (this.data.participants.length === 0 && this.data.classes.length === 0) {
+                                console.log('⚠️ Lists empty or missing. Trying file fallback for migration...');
+                                await this.loadFromFile();
+                            }
+                            return this.data;
+                        }
+                    } catch (e) {
+                        console.log('👤 Connection check failed:', e);
+                        this.updateStatus('local');
                     }
-
-                    return this.data;
+                } else {
+                    console.log('👤 Standalone/Local Mode detected (No SP API found).');
+                    this.updateStatus('local');
                 }
+
+                // 2. Fallback: Local/File Mode
+                await this.loadFromFile();
+                if (!this.useSharePointLists) this.updateStatus('local');
+
+                // 3. Auto-archive expired participants
+                await this.archiveExpiredParticipants();
+
                 return this.data;
             },
 
-            // Compatibility for Auth Callback and Legacy calls
-            async loadFromFile() {
-                return this.init();
+            async archiveExpiredParticipants() {
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+
+                // Keep active until the end of the current month
+                // Archive only if endDate is strictly before the 1st of the current month
+                const archiveThreshold = new Date(today.getFullYear(), today.getMonth(), 1);
+
+                const toArchive = this.data.participants.filter(p => {
+                    if (!p.dateEnd) return false;
+                    const endDate = new Date(p.dateEnd);
+                    return endDate < archiveThreshold;
+                });
+
+                if (toArchive.length > 0) {
+                    console.log(`📦 Archiving ${toArchive.length} expired participant(s)`);
+
+                    if (!this.data.archivedParticipants) this.data.archivedParticipants = [];
+
+                    // Add to archive (checking unicity just in case)
+                    toArchive.forEach(p => {
+                        if (!this.data.archivedParticipants.find(ap => ap.id === p.id)) {
+                            this.data.archivedParticipants.push(p);
+                        }
+                    });
+
+                    // Remove from active participants
+                    this.data.participants = this.data.participants.filter(p => {
+                        if (!p.dateEnd) return true;
+                        const endDate = new Date(p.dateEnd);
+                        return endDate >= archiveThreshold;
+                    });
+
+                    // Save changes
+                    await this.save();
+                }
             },
 
             async detectBaseUrl() {
-                return null; // Not used in Firebase mode
+                const paths = ['', '../', '../../', '../../../'];
+                for (const path of paths) {
+                    try {
+                        const r = await fetch(`${path}_api/contextinfo`, {
+                            method: 'POST',
+                            headers: { 'Accept': 'application/json;odata=verbose' }
+                        });
+                        if (r.ok || r.status === 403) return path;
+                    } catch (e) { }
+                }
+                return null;
+            },
+
+            // --- FILE MODE METHODS ---
+            async loadFromFile() {
+                // 1. Charger depuis localStorage (fallback)
+                const backup = localStorage.getItem(this.storageKey);
+                if (backup) {
+                    try { this.data = JSON.parse(backup); } catch (e) { }
+                }
+
+                // 2. Charger depuis Firestore si disponible
+                if (window.firebaseDb && window.currentUser) {
+                    try {
+                        const { getDoc, doc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+                        const userDataRef = doc(window.firebaseDb, 'users', window.currentUser.uid);
+                        const docSnap = await getDoc(userDataRef);
+
+                        if (docSnap.exists()) {
+                            const firestoreData = docSnap.data();
+
+                            // Helper to convert Base64 to ArrayBuffer
+                            const base64ToArrayBuffer = (base64) => {
+                                const binary_string = window.atob(base64);
+                                const len = binary_string.length;
+                                const bytes = new Uint8Array(len);
+                                for (let i = 0; i < len; i++) {
+                                    bytes[i] = binary_string.charCodeAt(i);
+                                }
+                                return bytes.buffer;
+                            };
+
+                            // Convertir les participants (restaurer ArrayBuffer depuis Base64)
+                            const participants = (firestoreData.participants || []).map(p => {
+                                if (p.isBase64Pdf && p.originalPdf && typeof p.originalPdf === 'string') {
+                                    p.originalPdf = base64ToArrayBuffer(p.originalPdf);
+                                    // p.isBase64Pdf = false; // Keep flag or remove, doesn't matter much internally
+                                }
+                                return p;
+                            });
+
+                            this.data = {
+                                participants: participants,
+                                classes: firestoreData.classes || [],
+                                attendances: firestoreData.attendances || []
+                            };
+                            console.log('✅ Données chargées depuis Firestore');
+                            // Sauvegarder aussi en localStorage pour le fallback
+                            localStorage.setItem(this.storageKey, JSON.stringify(this.data));
+                        } else {
+                            console.log('ℹ️ Pas de données Firestore, utilisation de localStorage');
+                        }
+                    } catch (error) {
+                        console.error('❌ Erreur chargement Firestore:', error);
+                        // Continue avec localStorage
+                    }
+
+                    // Charger les signatures depuis la collection partagée
+                    try {
+                        const { getDoc, doc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+                        const signaturesRef = doc(window.firebaseDb, 'shared', 'signatures');
+                        const signaturesSnap = await getDoc(signaturesRef);
+
+                        if (signaturesSnap.exists()) {
+                            const signaturesData = signaturesSnap.data();
+                            this.data.signatures = signaturesData.signatures || [];
+                            console.log('✅ Signatures chargées depuis Firestore');
+                            // Sauvegarder aussi en localStorage
+                            localStorage.setItem(this.storageKey, JSON.stringify(this.data));
+                        }
+                    } catch (error) {
+                        console.error('❌ Erreur chargement signatures Firestore:', error);
+                    }
+                }
+
+                // 3. Charger depuis fichier JSON (ancien système)
+                try {
+                    const response = await fetch(`${this.jsonUrl}?t=${new Date().getTime()}`);
+                    if (response.ok) {
+                        const json = await response.json();
+                        if (json) this.data = json;
+                    }
+                } catch (e) { }
+            },
+
+            // --- SHAREPOINT LIST METHODS ---
+            async loadFromSharePointLists() {
+                try {
+                    const pParams = "$select=Title,JSON_Data&$top=5000";
+                    const pResp = await fetch(`${this.baseUrl}_api/web/lists/getbytitle('MMT_Participants')/items?${pParams}`, { headers: { 'Accept': 'application/json;odata=verbose' } });
+                    if (pResp.ok) {
+                        const pData = await pResp.json();
+                        this.data.participants = pData.d.results.map(r => JSON.parse(r.JSON_Data));
+                    }
+
+                    const cResp = await fetch(`${this.baseUrl}_api/web/lists/getbytitle('MMT_Classes')/items?${pParams}`, { headers: { 'Accept': 'application/json;odata=verbose' } });
+                    if (cResp.ok) {
+                        const cData = await cResp.json();
+                        this.data.classes = cData.d.results.map(r => JSON.parse(r.JSON_Data));
+                    }
+
+                    const aResp = await fetch(`${this.baseUrl}_api/web/lists/getbytitle('MMT_Attendance')/items?${pParams}`, { headers: { 'Accept': 'application/json;odata=verbose' } });
+                    if (aResp.ok) {
+                        const aData = await aResp.json();
+                        this.data.attendance = aData.d.results.map(r => JSON.parse(r.JSON_Data));
+                    }
+                    console.log('✅ Loaded from SharePoint Lists');
+                } catch (e) {
+                    console.warn('⚠️ Error loading Lists (Not installed?):', e);
+                    this.showSaveIndicator('⚠️ Listes SharePoint introuvables. Cliquez sur CONFIGURER.');
+                    const btn = document.querySelector('.btn-save-indicator');
+                    if (btn) btn.onclick = () => window.app.installSharePointLists();
+                    this.updateStatus('error');
+                }
+            },
+
+            updateStatus(status) {
+                const badge = document.getElementById('db-status-badge');
+                // Target the container of the manual buttons (parent of the save button)
+                const manualButtons = document.querySelector('.btn-save-indicator')?.parentElement;
+
+                if (!badge) return;
+
+                if (status === 'connected') {
+                    badge.style.background = '#e8f5e9';
+                    badge.style.color = '#2e7d32';
+                    badge.innerHTML = '<span style="font-size: 1.2em;">🟢</span> Sync Cloud';
+                    badge.title = "Vos données sont synchronisées en temps réel avec SharePoint.";
+                    // Hide manual buttons in cloud mode
+                    if (manualButtons) manualButtons.style.display = 'none';
+
+                } else if (status === 'local') {
+                    badge.style.background = '#e9ecef';
+                    badge.style.color = '#6c757d';
+                    badge.innerHTML = '<span style="font-size: 1.2em;">⚪</span> Mode Local';
+                    badge.title = "Cliquez pour forcer la configuration SharePoint si vous êtes bien en ligne.";
+                    badge.style.cursor = 'pointer';
+                    badge.onclick = () => {
+                        if (confirm('Forcer la tentative de connexion SharePoint ?\n(À faire uniquement si le fichier est hébergé sur un site SharePoint)')) {
+                            window.app.installSharePointLists();
+                        }
+                    };
+                    // Show buttons in local mode
+                    if (manualButtons) manualButtons.style.display = 'flex';
+
+                } else if (status === 'error') {
+                    badge.style.background = '#ffebee';
+                    badge.style.color = '#c62828';
+                    badge.style.cursor = 'pointer';
+                    badge.innerHTML = '<span style="font-size: 1.2em;">⚠️</span> Configurer';
+                    badge.onclick = () => window.app.installSharePointLists();
+                    if (manualButtons) manualButtons.style.display = 'none'; // Config is priority
+
+                } else if (status === 'saving') {
+                    badge.innerHTML = '<span style="font-size: 1.2em;">🔄</span> Enregistrement...';
+                }
+            },
+
+            // Generic Save Dispatcher
+            async save() {
+                // Toujours sauvegarder en localStorage (fallback)
+                localStorage.setItem(this.storageKey, JSON.stringify(this.data));
+
+                // Sauvegarder aussi dans Firestore si disponible
+                if (window.firebaseDb && window.currentUser) {
+                    try {
+                        const { setDoc, doc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+
+                        // Helper to convert ArrayBuffer to Base64
+                        const arrayBufferToBase64 = (buffer) => {
+                            let binary = '';
+                            const bytes = new Uint8Array(buffer);
+                            const len = bytes.byteLength;
+                            for (let i = 0; i < len; i++) {
+                                binary += String.fromCharCode(bytes[i]);
+                            }
+                            return window.btoa(binary);
+                        };
+
+                        // Préparer les participants : RETIRER originalPdf pour Firestore
+                        // Nous stockons maintenant pdfData (extrait texte) qui est léger
+                        const participantsForSave = (this.data.participants || []).map(p => {
+                            const pCopy = { ...p };
+                            // Remove heavy PDF binary/base64 data
+                            if (pCopy.originalPdf) {
+                                delete pCopy.originalPdf;
+                            }
+                            delete pCopy.isBase64Pdf;
+                            return pCopy;
+                        });
+
+                        // Sauvegarder les données utilisateur
+                        const userDataRef = doc(window.firebaseDb, 'users', window.currentUser.uid);
+                        await setDoc(userDataRef, {
+                            participants: participantsForSave,
+                            classes: this.data.classes || [],
+                            attendances: this.data.attendances || [],
+                            lastUpdated: new Date().toISOString()
+                        });
+
+                        // Sauvegarder les signatures dans une collection partagée
+                        if (this.data.signatures && this.data.signatures.length > 0) {
+                            const signaturesRef = doc(window.firebaseDb, 'shared', 'signatures');
+                            await setDoc(signaturesRef, {
+                                signatures: this.data.signatures,
+                                lastUpdated: new Date().toISOString()
+                            });
+                            console.log('✅ Signatures sauvegardées dans Firestore');
+                        }
+
+                        console.log('✅ Données sauvegardées dans Firestore');
+                    } catch (error) {
+                        console.error('❌ Erreur Firestore:', error);
+                        // Continue avec localStorage seulement
+                    }
+                }
+
+                if (this.useSharePointLists) {
+                    console.log('ℹ️ List Mode: Global save ignored (Using item-level logic).');
+                } else {
+                    this.updateStatus('saving');
+                    await this.saveToFile();
+                    if (!this.useSharePointLists) this.updateStatus('local'); // Revert status
+                }
+            },
+
+            async saveToFile() {
+                if (window.location.protocol === 'file:') {
+                    this.showSaveIndicator('⚠️ Mode Local (Backup Auto : OFF)');
+                    return;
+                }
+                try {
+                    console.log('☁️ Saving File...');
+                    const headers = { 'Accept': 'application/json;odata=verbose', 'Content-Type': 'application/json;odata=verbose' };
+                    let digest = '';
+                    try {
+                        const cr = await fetch(`${this.baseUrl || ''}_api/contextinfo`, { method: 'POST', headers });
+                        if (cr.ok) digest = (await cr.json()).d.GetContextWebInformation.FormDigestValue;
+                    } catch (e) { }
+
+                    if (digest) {
+                        headers['X-RequestDigest'] = digest;
+                        const path = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/'));
+                        // Note: For file save we might need robust URL too, but legacy save usually expects current folder
+                        // If baseUrl is used, we might need web-relative URL.
+                        // Let's stick to simple relative call for Legacy Save as it likely uses current folder
+                        const spUrl = `${this.baseUrl || ''}_api/web/getfolderbyserverrelativeurl('${path}')/files/add(url='${this.jsonUrl}', overwrite=true)`;
+                        await fetch(spUrl, { method: 'POST', headers, body: JSON.stringify(this.data) });
+                        this.showSaveIndicator('✅ Sauvegardé (Web)');
+                    } else {
+                        await fetch(this.jsonUrl, { method: 'PUT', body: JSON.stringify(this.data) });
+                        this.showSaveIndicator('✅ Sauvegardé');
+                    }
+                } catch (e) {
+                    console.error('Save error:', e);
+                    this.showSaveIndicator('⚠️ Erreur Sauvegarde');
+                }
+            },
+
+            showSaveIndicator(text) {
+                const btn = document.querySelector('.btn-save-indicator');
+                if (btn) {
+                    const originalText = btn.textContent;
+                    btn.textContent = text;
+                    setTimeout(() => btn.textContent = originalText, 4000);
+                }
+            },
+
+            // CRUD Wrappers
+            async getAll(storeName) { return this.data[storeName] || []; },
+
+            async get(storeName, id) {
+                const store = this.data[storeName] || [];
+                return store.find(item => item.id === id);
+            },
+
+            async add(storeName, item) {
+                if (!this.data[storeName]) this.data[storeName] = [];
+                const index = this.data[storeName].findIndex(i => i.id === item.id);
+                if (index !== -1) {
+                    this.data[storeName][index] = item;
+                } else {
+                    this.data[storeName].push(item);
+                }
+
+                if (this.useSharePointLists) {
+                    await this.spAddOrUpdate(storeName, item);
+                } else {
+                    await this.save();
+                }
+                return item.id;
+            },
+
+            async update(storeName, item) {
+                if (!this.data[storeName]) this.data[storeName] = [];
+                const index = this.data[storeName].findIndex(i => i.id === item.id);
+                if (index !== -1) {
+                    this.data[storeName][index] = item;
+                } else {
+                    this.data[storeName].push(item);
+                }
+                await this.save();
+                return item.id;
+            },
+
+            async delete(storeName, id) {
+                if (!this.data[storeName]) return;
+                this.data[storeName] = this.data[storeName].filter(i => i.id !== id);
+
+                if (this.useSharePointLists) {
+                    // await this.spDelete(storeName, id); // Assuming spDelete exists for SharePoint lists
+                } else {
+                    await this.save();
+                }
+            },
+
+            // Adapter Interface Compliance
+            async getParticipants() { return this.getAll(STORES.PARTICIPANTS); },
+            async saveParticipant(p) { return p.id ? this.update(STORES.PARTICIPANTS, p) : this.add(STORES.PARTICIPANTS, p); },
+            async deleteParticipant(id) { return this.delete(STORES.PARTICIPANTS, id); },
+            async getClasses() { return this.getAll(STORES.CLASSES); },
+            async saveClass(c) { return c.id ? this.update(STORES.CLASSES, c) : this.add(STORES.CLASSES, c); },
+            async deleteClass(id) { return this.delete(STORES.CLASSES, id); },
+            async getAttendances() { return this.getAll(STORES.ATTENDANCE); },
+            async saveAttendances(list) {
+                for (const item of list) {
+                    await this.update(STORES.ATTENDANCE, item);
+                }
+            },
+
+            // Archived Participants Support
+            async getArchivedParticipants() { return this.getAll('archivedParticipants'); },
+            async saveArchivedParticipant(p) {
+                if (!this.data.archivedParticipants) this.data.archivedParticipants = [];
+                const index = this.data.archivedParticipants.findIndex(i => i.id === p.id);
+                if (index !== -1) this.data.archivedParticipants[index] = p;
+                else this.data.archivedParticipants.push(p);
+                await this.save();
+                return p;
+            },
+            async deleteArchivedParticipant(id) {
+                await this.delete('archivedParticipants', id);
+            },
+
+            // Signatures Support
+            async getSignatures() { return this.getAll('signatures'); },
+            async saveSignature(sig) {
+                if (!this.data.signatures) this.data.signatures = [];
+                const index = this.data.signatures.findIndex(s => s.id === sig.id);
+                if (index !== -1) this.data.signatures[index] = sig;
+                else this.data.signatures.push(sig);
+                await this.save();
+                return sig;
+            },
+            async deleteSignature(id) {
+                if (!this.data.signatures) return;
+                this.data.signatures = this.data.signatures.filter(s => s.id !== id);
+                await this.save();
             }
         };
 
+        // Initialize default dbService
+        var dbService = jsonDbService;
+        window.dbService = dbService;
+
         // --- INSTALLER LOGIC (External) ---
-        // --- INSTALLER LOGIC (External) ---
-        // DISABLED IN FIREBASE VERSION
         window.app.installSharePointLists = async function () {
-            alert('Cette version utilise Firebase Firestore. L\'installation SharePoint n\'est pas requise.');
+            if (!confirm('Voulez-vous installer les bases de données SharePoint (Listes) maintenant ?\n\nNécessaire pour le mode multi-utilisateurs.')) return;
+
+            const lists = ['MMT_Participants', 'MMT_Classes', 'MMT_Attendance'];
+            let log = '';
+
+            try {
+                // Use detected URL or try current Relative
+                let baseUrl = dbService.baseUrl;
+                if (baseUrl === undefined) baseUrl = '';
+
+                const r = await fetch(`${baseUrl}_api/contextinfo`, { method: 'POST', headers: { 'Accept': 'application/json;odata=verbose' } });
+                const digest = (await r.json()).d.GetContextWebInformation.FormDigestValue;
+
+                for (const title of lists) {
+                    try {
+                        console.log(`Creating ${title}...`);
+                        await fetch(`${baseUrl}_api/web/lists`, {
+                            method: 'POST',
+                            headers: {
+                                'Accept': 'application/json;odata=verbose',
+                                'Content-Type': 'application/json;odata=verbose',
+                                'X-RequestDigest': digest
+                            },
+                            body: JSON.stringify({
+                                '__metadata': { 'type': 'SP.List' },
+                                'AllowContentTypes': true,
+                                'BaseTemplate': 100, // Generic List
+                                'ContentTypesEnabled': true,
+                                'Description': 'Database for MMT App',
+                                'Title': title
+                            })
+                        });
+
+                        await fetch(`${baseUrl}_api/web/lists/getbytitle('${title}')/fields`, {
+                            method: 'POST',
+                            headers: {
+                                'Accept': 'application/json;odata=verbose',
+                                'Content-Type': 'application/json;odata=verbose',
+                                'X-RequestDigest': digest
+                            },
+                            body: JSON.stringify({
+                                '__metadata': { 'type': 'SP.Field' },
+                                'Title': 'JSON_Data',
+                                'FieldTypeKind': 3, // Memo/Note
+                                'Required': false,
+                                'EnforceUniqueValues': false,
+                                'StaticName': 'JSON_Data'
+                            })
+                        });
+
+                        log += `✅ Liste ${title} créée.\n`;
+                    } catch (e) {
+                        log += `⚠️ Liste ${title} existe déjà ou erreur.\n`;
+                    }
+                }
+                alert('Installation terminée !\n\n' + log + '\nRechargez la page.');
+                location.reload();
+            } catch (e) {
+                alert('Erreur: Impossible de contacter SharePoint.\n' + e.message + '\n\nVérifiez que le fichier est bien sur le site SharePoint.');
+            }
         };
 
         // Participant Service
         const participantService = {
             async getAllParticipants() {
+                if (dbService.getParticipants) return await dbService.getParticipants();
                 return await dbService.getAll(STORES.PARTICIPANTS);
             },
 
             async addParticipant(participant) {
-                if (!participant.id) {
-                    participant.id = crypto.randomUUID();
-                }
+                if (!participant.id) participant.id = crypto.randomUUID();
+                if (dbService.saveParticipant) return await dbService.saveParticipant(participant);
                 return await dbService.add(STORES.PARTICIPANTS, participant);
             },
 
             async updateParticipant(participant) {
-                // Handle both (id, data) and (data) signatures
                 if (arguments.length === 2) {
                     const data = arguments[1];
                     data.id = arguments[0];
-                    return await dbService.update(STORES.PARTICIPANTS, data);
+                    participant = data;
                 }
+                if (dbService.saveParticipant) return await dbService.saveParticipant(participant);
                 return await dbService.update(STORES.PARTICIPANTS, participant);
             },
 
             async deleteParticipant(id) {
+                if (dbService.deleteParticipant) return await dbService.deleteParticipant(id);
                 return await dbService.delete(STORES.PARTICIPANTS, id);
             }
         };
@@ -1764,21 +2150,23 @@
         // Class Service
         const classService = {
             async getAllClasses() {
+                if (dbService.getClasses) return await dbService.getClasses();
                 return await dbService.getAll(STORES.CLASSES);
             },
 
             async addClass(cls) {
-                if (!cls.id) {
-                    cls.id = crypto.randomUUID();
-                }
+                if (!cls.id) cls.id = crypto.randomUUID();
+                if (dbService.saveClass) return await dbService.saveClass(cls);
                 return await dbService.add(STORES.CLASSES, cls);
             },
 
             async updateClass(cls) {
+                if (dbService.saveClass) return await dbService.saveClass(cls);
                 return await dbService.update(STORES.CLASSES, cls);
             },
 
             async deleteClass(id) {
+                if (dbService.deleteClass) return await dbService.deleteClass(id);
                 return await dbService.delete(STORES.CLASSES, id);
             },
 
@@ -1792,9 +2180,94 @@
             },
 
             async getClass(id) {
+                if (dbService.getClasses) {
+                    const classes = await dbService.getClasses();
+                    return classes.find(c => c.id === id);
+                }
                 return await dbService.get(STORES.CLASSES, id);
             }
         };
+
+        // Attendance Service Implementation (Injected inline to ensure availability)
+        const ATTENDANCE_CODES = {
+            '': { code: '', label: '(Vide)', description: 'Effacer / Aucune sélection', requiresComment: false },
+            'X': { code: 'X', label: 'Sur place', description: 'PARTICIPATION SUR PLACE : le participant est présent', requiresComment: false },
+            'O': { code: 'O', label: 'En ligne', description: 'PARTICIPATION EN LIGNE', requiresComment: false },
+            'A': { code: 'A', label: 'Vacances', description: 'VACANCES : jours sans contrôle accordés par l\'ORP', requiresComment: false },
+            'B': { code: 'B', label: 'Maladie/Grossesse', description: 'MALADIE, GROSSESSE : certificat requis dès le 4e jour', requiresComment: false },
+            'C': { code: 'C', label: 'Accident', description: 'ACCIDENT : certificat requis dès le 4e jour', requiresComment: false },
+            'D': { code: 'D', label: 'Congé maternité/parental', description: 'CONGÉ MATERNITÉ, CONGÉ DE L\'AUTRE PARENT', requiresComment: false },
+            'E': { code: 'E', label: 'Service militaire/civil', description: 'SERVICE MILITAIRE, SERVICE CIVIL', requiresComment: false },
+            'F': { code: 'F', label: 'Gain intermédiaire', description: 'GAIN INTERMÉDIAIRE : auprès d\'un employeur', requiresComment: false },
+            'G': { code: 'G', label: 'Autres absences justifiées', description: 'AUTRES ABSENCES JUSTIFIÉES (Décès, Mariage, etc)', requiresComment: true },
+            'H': { code: 'H', label: 'Jours fériés/Fermeture', description: 'JOURS FÉRIÉS, VACANCES D\'ENTREPRISE', requiresComment: false },
+            'I': { code: 'I', label: 'Absence non justifiée', description: 'ABSENCES NON JUSTIFIÉES', requiresComment: false }
+        };
+        window.ATTENDANCE_CODES = ATTENDANCE_CODES;
+
+        const attendanceService = {
+            async saveAttendance(attendanceRecords) {
+                // 1. Get all existing records to check for legacy duplicates
+                let allCurrent = [];
+                try {
+                    allCurrent = await dbService.getAll(STORES.ATTENDANCE);
+                } catch (e) { console.warn("Could not fetch all for duplicate check", e); }
+
+                const promises = attendanceRecords.map(async (record) => {
+                    const canonicalId = `${record.classId}_${record.date}_${record.participantId}`;
+
+                    // 2. Find legacy duplicates (Same slot (class+date+part) BUT different ID)
+                    const duplicates = allCurrent.filter(r =>
+                        r.classId === record.classId &&
+                        r.date === record.date &&
+                        r.participantId === record.participantId &&
+                        r.id !== canonicalId
+                    );
+
+                    // 3. Delete duplicates
+                    if (duplicates.length > 0) {
+                        console.log(`🧹 Cleaning up ${duplicates.length} duplicate/legacy records for ${canonicalId}`);
+                        for (const dup of duplicates) {
+                            await dbService.delete(STORES.ATTENDANCE, dup.id);
+                        }
+                    }
+
+                    // 4. Save the correct record
+                    const item = { ...record, id: canonicalId };
+                    // Use update to ensure generic adapter logic (saveAttendances) is triggered
+                    return dbService.update(STORES.ATTENDANCE, item);
+                });
+
+                return Promise.all(promises);
+            },
+
+            async getAttendance(classId, date) {
+                const all = await dbService.getAll(STORES.ATTENDANCE);
+                return all.filter(r => r.classId === classId && r.date === date);
+            },
+
+            async markAsChecked(classId, date) {
+                const checkId = `check_${classId}_${date}`;
+                const data = {
+                    id: checkId,
+                    classId,
+                    date,
+                    checked: true,
+                    checkedAt: new Date().toISOString()
+                };
+                return dbService.update(STORES.ATTENDANCE, data);
+            },
+
+            async isChecked(classId, date) {
+                try {
+                    const allRecords = await dbService.getAll(STORES.ATTENDANCE);
+                    const record = allRecords.find(r => r.id === `check_${classId}_${date}`);
+                    return record && record.checked;
+                } catch (error) { return false; }
+            }
+        };
+        window.attendanceService = attendanceService;
+
 
         // Initialize window.app namespace immediately
         window.app = window.app || {};
@@ -1802,13 +2275,29 @@
 
         // Initialize App
         // Initialize App
-        document.addEventListener('DOMContentLoaded', () => {
-            dbService.init().then(() => {
+        document.addEventListener('DOMContentLoaded', async () => {
+            // DECISION: Use Firebase if available (via adapter), else JSON
+            if (window.firebaseStorage) {
+                console.log('🔥 Using Firebase Storage Adapter as primary DB');
+                dbService = window.firebaseStorage; // Update local scope var
+                window.dbService = window.firebaseStorage;
+
+                if (window.dbService.init) {
+                    await window.dbService.init().catch(err => console.error('Firebase Init Error:', err));
+                }
                 initApp();
-            }).catch(err => {
-                console.error('Database initialization failed', err);
-                alert('Erreur: Impossible d\'initialiser la base de données.');
-            });
+            } else {
+                console.warn('⚠️ No Firebase Adapter found. Falling back to local JSON/SharePoint mode.');
+                dbService = jsonDbService;
+                window.dbService = jsonDbService;
+
+                dbService.init().then(() => {
+                    initApp();
+                }).catch(err => {
+                    console.error('Database initialization failed', err);
+                    alert('Erreur: Impossible d\'initialiser la base de données.');
+                });
+            }
         });
 
         function initApp() {
@@ -1974,16 +2463,30 @@
             const daysInMonth = new Date(year, month, 0).getDate();
 
             const container = document.getElementById('dashboard-content');
-            container.innerHTML = '<p>Chargement...</p>';
+            // Only show loader if empty to avoid flickering on refresh
+            if (!container.innerHTML.trim()) {
+                container.innerHTML = '<p>Chargement...</p>';
+            }
 
             try {
                 // Fetch all data (Active + Archived)
+                // Fetch all data (Active + Archived)
                 let rawParticipants = await participantService.getAllParticipants();
-                if (dbService.data.archivedParticipants) {
-                    // Merge unique participants
+
+                // Handle archived fetching via Adapter or direct property
+                let archived = [];
+                if (dbService.getArchivedParticipants) {
+                    archived = await dbService.getArchivedParticipants();
+                } else if (dbService.getAll) {
+                    archived = await dbService.getAll('archivedParticipants');
+                } else if (dbService.data && dbService.data.archivedParticipants) {
+                    archived = dbService.data.archivedParticipants;
+                }
+
+                if (archived && archived.length > 0) {
                     const activeIds = new Set(rawParticipants.map(p => p.id));
-                    const archived = dbService.data.archivedParticipants.filter(p => !activeIds.has(p.id));
-                    rawParticipants = [...rawParticipants, ...archived];
+                    const uniqueArchived = archived.filter(p => !activeIds.has(p.id));
+                    rawParticipants = [...rawParticipants, ...uniqueArchived];
                 }
 
                 // Filter by Date Overlap with current View Month
@@ -1993,6 +2496,9 @@
                 viewEnd.setHours(23, 59, 59, 999);
 
                 const participants = rawParticipants.filter(p => {
+                    // Filter out hidden participants (like System Template)
+                    if (p.isHidden || p.type === 'CONFIG') return false;
+
                     if (!p.dateStart) return true; // Show if no start (legacy)
                     const pStart = new Date(p.dateStart);
                     if (isNaN(pStart.getTime())) return true;
@@ -2008,7 +2514,13 @@
                     return true;
                 });
 
-                const allAttendance = await dbService.getAll(STORES.ATTENDANCE);
+                // Récupérer les présences via la méthode appropriée
+                let allAttendance = [];
+                if (dbService.getAttendances) {
+                    allAttendance = await dbService.getAttendances();
+                } else if (dbService.getAll) {
+                    allAttendance = await dbService.getAll(window.STORES.ATTENDANCE);
+                }
 
                 // Filter attendance for this month
                 const monthAtt = allAttendance.filter(r => r.date && r.date.startsWith(monthValue));
@@ -2115,7 +2627,7 @@
                 // Rows for each class group
                 for (const [className, classParticipants] of Object.entries(participantsByClass)) {
                     const cls = classes.find(c => c.name === className);
-                    const classId = cls ? cls.id : null;
+                    const classId = cls ? cls.id : '';
                     const manageBtn = (classId && className !== 'Sans classe')
                         ? `<button onclick="window.app.openClassAttendance('${classId}')" class="btn-secondary btn-sm" style="background:rgba(255,255,255,0.2); color:white; border:1px solid rgba(255,255,255,0.4); margin-left:1rem; padding:0.2rem 0.6rem; font-size:0.8rem;">⚙️ Gérer les présences</button>`
                         : '';
@@ -2149,21 +2661,30 @@
                     // Participants in this class
                     classParticipants.forEach(p => {
                         // Calculate total hours
-                        // Calculate total hours - ALL MONTHS
+                        // Calculate Grand Total Hours (All Time)
+                        const pRawRecords = allAttendance.filter(r => r.participantId === p.id);
+
+                        // Deduplicate by Date
+                        const uniqueRecordsAllTime = {};
+                        pRawRecords.forEach(r => {
+                            const existing = uniqueRecordsAllTime[r.date];
+                            if (!existing) {
+                                uniqueRecordsAllTime[r.date] = r;
+                            } else {
+                                if (!existing.classId && r.classId) uniqueRecordsAllTime[r.date] = r;
+                            }
+                        });
+
                         let totalHours = 0;
+                        Object.values(uniqueRecordsAllTime).forEach(r => {
+                            const mCode = r.morningCode === 'P' ? 'X' : r.morningCode;
+                            const aCode = r.afternoonCode === 'P' ? 'X' : r.afternoonCode;
 
-                        // Filter attendance for THIS participant across ALL time
-                        const pAllRecords = allAttendance.filter(r => r.participantId === p.id);
+                            // Morning = 4 hours
+                            if (['X', 'O'].includes(mCode)) totalHours += 4;
 
-                        pAllRecords.forEach(record => {
-                            const mCode = record ? (record.morningCode === 'P' ? 'X' : record.morningCode) : '';
-                            const aCode = record ? (record.afternoonCode === 'P' ? 'X' : record.afternoonCode) : '';
-
-                            // Count 'X' (Prezenz) OR 'O' (Distance)
-                            // X/O Morning = 4h
-                            // X/O Afternoon = 2h
-                            if (mCode === 'X' || mCode === 'O') totalHours += 4;
-                            if (aCode === 'X' || aCode === 'O') totalHours += 2;
+                            // Afternoon = 2 hours
+                            if (['X', 'O'].includes(aCode)) totalHours += 2;
                         });
 
                         let rowMatin = `<td class="name-col" rowspan="2" style="border-bottom: 2px solid #e0e0e0; position:relative;">
@@ -2193,7 +2714,10 @@
                                 isScheduledPm = p.schedule[`${dayOfWeek}-pm`];
                             }
 
-                            const record = monthAtt.find(r => r.participantId === p.id && r.date === dateStr);
+                            // Robust Record Finding (Handle Duplicates/Legacy)
+                            const allMatching = monthAtt.filter(r => r.participantId === p.id && r.date === dateStr);
+                            // Prioritize records with a classId (newer format), otherwise take the first found
+                            const record = allMatching.find(r => r.classId) || allMatching[0];
 
                             const mCode = record ? (record.morningCode === 'P' ? 'X' : record.morningCode) : '';
                             const aCode = record ? (record.afternoonCode === 'P' ? 'X' : record.afternoonCode) : '';
@@ -2208,8 +2732,10 @@
                             };
 
                             // Add tooltip for code G
+                            // Escape comment for HTML attribute
+                            const safeComment = comment ? comment.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
                             const tooltipClass = (mCode === 'G' && comment) ? 'code-g-tooltip' : '';
-                            const tooltipAttr = (mCode === 'G' && comment) ? `data-comment="${comment}"` : '';
+                            const tooltipAttr = (mCode === 'G' && comment) ? `data-comment="${safeComment}"` : '';
 
                             // Interruption Logic
                             let cellContentM = mCode || '';
@@ -2232,11 +2758,15 @@
                             const onclickA = `onclick="window.app.editDashboardCell('${p.id}', '${dateStr}', 'afternoon', '${aCode}', '${comment.replace(/'/g, "\\'")}', '${safeClassName}', '${classId}')"`;
                             const cursorStyle = 'cursor: pointer;';
 
-                            rowMatin += `<td class="${weekendClass} ${getCellClass(mCode, isScheduledAm)} ${tooltipClass}" ${tooltipAttr} style="${lastDayStyle} ${cursorStyle}" ${lastDayTooltip} ${onclickM}>${cellContentM}</td>`;
+                            // Add unique ID for direct DOM manipulation
+                            const cellIdM = `cell-morning-${p.id}-${dateStr}`;
+                            const cellIdA = `cell-afternoon-${p.id}-${dateStr}`;
+
+                            rowMatin += `<td id="${cellIdM}" class="${weekendClass} ${getCellClass(mCode, isScheduledAm)} ${tooltipClass}" ${tooltipAttr} style="${lastDayStyle} ${cursorStyle}" ${lastDayTooltip} ${onclickM}>${cellContentM}</td>`;
 
                             const tooltipClassAm = (aCode === 'G' && comment) ? 'code-g-tooltip' : '';
-                            const tooltipAttrAm = (aCode === 'G' && comment) ? `data-comment="${comment}"` : '';
-                            rowAprem += `<td class="${weekendClass} ${getCellClass(aCode, isScheduledPm)} ${tooltipClassAm}" ${tooltipAttrAm} style="border-bottom: 2px solid #e0e0e0; ${lastDayStyle} ${cursorStyle}" ${lastDayTooltip} ${onclickA}>${cellContentA}</td>`;
+                            const tooltipAttrAm = (aCode === 'G' && comment) ? `data-comment="${safeComment}"` : '';
+                            rowAprem += `<td id="${cellIdA}" class="${weekendClass} ${getCellClass(aCode, isScheduledPm)} ${tooltipClassAm}" ${tooltipAttrAm} style="border-bottom: 2px solid #e0e0e0; ${lastDayStyle} ${cursorStyle}" ${lastDayTooltip} ${onclickA}>${cellContentA}</td>`;
                         }
 
                         tableHtml += `<tr>${rowMatin}</tr><tr>${rowAprem}</tr>`;
@@ -2273,7 +2803,10 @@
 
             listContainer.innerHTML = '<p>Chargement...</p>';
             try {
-                const participants = await participantService.getAllParticipants();
+                let participants = await participantService.getAllParticipants();
+                // Filter out hidden/config participants
+                participants = participants.filter(p => !p.isHidden && p.type !== 'CONFIG');
+
                 if (participants.length === 0) {
                     listContainer.innerHTML = '<p>Aucun participant actif. Importez un PDF ou créez-en un manuellement.</p>';
                 } else {
@@ -2333,7 +2866,15 @@
 
             listContainer.innerHTML = '<p>Chargement...</p>';
             try {
-                const archived = await dbService.getAll('archivedParticipants');
+                let archived = [];
+                if (dbService.getArchivedParticipants) {
+                    archived = await dbService.getArchivedParticipants();
+                } else if (dbService.getAll) {
+                    archived = await dbService.getAll('archivedParticipants');
+                } else {
+                    // Fallback for direct data access if adapter mimics data structure
+                    archived = (dbService.data && dbService.data.archivedParticipants) ? dbService.data.archivedParticipants : [];
+                }
                 if (archived.length === 0) {
                     listContainer.innerHTML = '<p style="text-align: center; color: #666; padding: 2rem;">Aucun participant archivé.</p>';
                 } else {
@@ -2436,7 +2977,6 @@
                 document.getElementById('p-firstname').value = p.firstName;
                 document.getElementById('p-lastname').value = p.lastName;
                 document.getElementById('p-work-percent').value = p.workPercent || 100;
-                document.getElementById('p-unemployment-office').value = p.unemploymentOffice || '';
                 document.getElementById('p-date-start').value = p.dateStart || '';
                 document.getElementById('p-date-end').value = p.dateEnd || '';
                 document.getElementById('p-interruption-mmt').checked = p.interruptionMMT || false;
@@ -2465,7 +3005,6 @@
             const firstName = document.getElementById('p-firstname').value;
             const lastName = document.getElementById('p-lastname').value;
             const workPercent = document.getElementById('p-work-percent').value;
-            const unemploymentOffice = document.getElementById('p-unemployment-office').value;
             const dateStart = document.getElementById('p-date-start').value;
             const dateEnd = document.getElementById('p-date-end').value;
             const interruptionMMT = document.getElementById('p-interruption-mmt').checked;
@@ -2486,7 +3025,6 @@
                     firstName,
                     lastName,
                     workPercent,
-                    unemploymentOffice,
                     dateStart,
                     dateEnd,
                     interruptionMMT,
@@ -2893,6 +3431,7 @@
                         
                         <div style="display: flex; gap: 1rem; justify-content: flex-end;">
                             <button onclick="window.app.closeEditAttendanceModal()" class="btn-secondary">Annuler</button>
+                            <!-- We pass empty string for className as it is unused and dangerous to pass around without complex escaping -->
                             <button onclick="window.app.saveAttendanceFromDashboard('${participantId}', '${date}', '${period}', '', '${classId}')" class="btn-primary">Enregistrer</button>
                         </div>
                     </div>
@@ -2925,7 +3464,7 @@
         };
 
         window.app.saveAttendanceFromDashboard = async (participantId, date, period, className, classId) => {
-            console.log(`💾 Saving Dashboard (GitHub): ${period} -> ${participantId} @ ${date} (Class: ${classId})`);
+            console.log(`💾 Saving Dashboard (Firestore): ${period} -> ${participantId} @ ${date} (Class: ${classId})`);
             const codeSelect = document.getElementById('attendance-code-select');
             const commentTextarea = document.getElementById('attendance-comment');
 
@@ -2975,6 +3514,9 @@
                 }
 
                 // Apply changes strictly to the requested period
+                let oldMorning = record.morningCode;
+                let oldAfternoon = record.afternoonCode;
+
                 if (period === 'morning') {
                     record.morningCode = code;
                 } else if (period === 'afternoon') {
@@ -2983,6 +3525,9 @@
                     console.error('❌ Invalid period:', period);
                     return;
                 }
+
+                // DEBUG ALERT
+                // alert(`🔍 DEBUG (Firestore):\nModification demandée pour: ${period}\n\nAvant:\nMatin: ${oldMorning}\nAprès-midi: ${oldAfternoon}\n\nAprès modification:\nMatin: ${record.morningCode}\nAprès-midi: ${record.afternoonCode}\n\nSi vous voyez que les deux ont changé, c'est un BUG !`);
 
                 // Update comment
                 record.comment = comment;
@@ -3054,7 +3599,7 @@
                     <p style="margin-top:0.5rem; font-weight:500; color:#666;">${c.participantIds?.length || 0} participants</p>
                     <div class="card-actions" style="margin-top:1rem; display:flex; gap:0.5rem;">
                         <button class="btn-primary btn-sm" onclick="window.app.openClassDetails('${c.id}')">Gérer Présences</button>
-                        <button class="btn-secondary btn-sm" onclick="window.app.exportClassToExcel('${c.id}')" title="Exporter en CSV">Liste CSV</button>
+                        <button class="btn-secondary btn-sm" onclick="currentClassId='${c.id}'; window.app.exportClassCSV()">Export CSV</button>
                     </div>
                 </div>
             `).join('');
@@ -3353,7 +3898,15 @@
                 const signatureDate = `${sDay}.${sMonth}.${sYear}`;
 
                 const allParticipants = await participantService.getAllParticipants();
-                const allAttendance = await dbService.getAll(STORES.ATTENDANCE);
+
+                // Récupérer les présences via la méthode appropriée
+                let allAttendance = [];
+                if (dbService.getAttendances) {
+                    allAttendance = await dbService.getAttendances();
+                } else if (dbService.getAll) {
+                    allAttendance = await dbService.getAll(STORES.ATTENDANCE);
+                }
+
                 const classes = await classService.getAllClasses();
 
                 // Filter participants based on selection
@@ -3395,13 +3948,46 @@
                     return;
                 }
 
-                // Sort participants
-                targetParticipants.sort((a, b) => a.lastName.localeCompare(b.lastName));
+                // Mapping codes Caisses (Definition early for sorting)
+                const CAISSE_MAPPING_SORT = {
+                    '49 - 000': 'Caisse de chômage CSI, Porrentruy',
+                    '26 - 000': 'Caisse Cantonale Jura, Saignelégier',
+                    '57 - 010': 'Syna Caisse de chômage, Olten',
+                    '60 - 321': 'Unia Caisse de chômage (321), Lausanne',
+                    '60 - 323': 'Unia Caisse de chômage (323), Lausanne'
+                };
+
+                // Sort participants: Caisse (Mapped Name) then Name
+                targetParticipants.sort((a, b) => {
+                    const rawA = (a.unemploymentOffice || '').trim();
+                    const rawB = (b.unemploymentOffice || '').trim();
+
+                    const caisseA = (CAISSE_MAPPING_SORT[rawA] || rawA).toLowerCase();
+                    const caisseB = (CAISSE_MAPPING_SORT[rawB] || rawB).toLowerCase();
+
+                    if (caisseA < caisseB) return -1;
+                    if (caisseA > caisseB) return 1;
+                    return a.lastName.localeCompare(b.lastName);
+                });
 
                 // Check if we need a template
                 const needsTemplate = targetParticipants.some(p => !p.originalPdf || p.originalPdf.byteLength === 0);
 
-                if (needsTemplate && !cachedTemplate) {
+                // Try refreshing cachedTemplate from DB if missing
+                if (needsTemplate && !window.cachedTemplate && window.dbService && window.dbService.getGlobalTemplate) {
+                    console.log('🔄 Tentative de chargement du template global avant demande...');
+                    try {
+                        const globalTpl = await window.dbService.getGlobalTemplate();
+                        if (globalTpl) {
+                            window.cachedTemplate = globalTpl;
+                            console.log('✅ Template global récupéré avec succès');
+                        }
+                    } catch (e) {
+                        console.warn('⚠️ Impossible de récupérer le template global:', e);
+                    }
+                }
+
+                if (needsTemplate && !window.cachedTemplate) {
                     if (!confirm('Certains participants n\'ont pas de PDF enregistré. Voulez-vous sélectionner le formulaire MMT vierge pour tous ?')) {
                         return;
                     }
@@ -3414,15 +4000,15 @@
                         input.onchange = async (e) => {
                             const file = e.target.files[0];
                             if (file) {
-                                cachedTemplate = await file.arrayBuffer();
-                                saveTemplateToStorage(cachedTemplate); // Save permanently
+                                window.cachedTemplate = await file.arrayBuffer();
+                                saveTemplateToStorage(window.cachedTemplate); // Save permanently
                             }
                             resolve();
                         };
                         input.click();
                     });
 
-                    if (!cachedTemplate) {
+                    if (!window.cachedTemplate) {
                         alert('Aucun template sélectionné. Opération annulée.');
                         return;
                     }
@@ -3433,6 +4019,8 @@
                 let missingPdfCount = 0;
                 const missingPdfNames = [];
                 const generationErrors = [];
+                const summaryList = []; // Liste pour la page de synthèse
+                console.log('reset summaryList');
 
                 console.log('🏁 Démarrage export PDF avec SignatureID:', signatureId);
 
@@ -3460,9 +4048,9 @@
                             generationErrors.push(`${p.firstName} ${p.lastName}: Données PDF corrompues`);
                             continue;
                         }
-                    } else if (cachedTemplate) {
+                    } else if (window.cachedTemplate) {
                         // Create a REAL fresh copy of the cached template
-                        const tempDoc = await PDFLib.PDFDocument.load(cachedTemplate);
+                        const tempDoc = await PDFLib.PDFDocument.load(window.cachedTemplate);
                         templateToUse = await tempDoc.save();
                     } else {
                         console.warn(`❌ Pas de template pour ${p.firstName} ${p.lastName}`);
@@ -3478,6 +4066,13 @@
 
                     try {
                         const filledBytes = await window.pdfGenerator.generatePDF(p, pAttendance, templateToUse, signatureDate, isCorrection, signatureId);
+                        // Ajouter au sommaire
+                        console.log(`Adding ${p.lastName} to summary list. Caisse: ${p.unemploymentOffice}`);
+                        summaryList.push({
+                            name: `${p.lastName} ${p.firstName}`,
+                            caisse: p.unemploymentOffice || '-'
+                        });
+
                         const filledPdf = await PDFLib.PDFDocument.load(filledBytes);
                         const copiedPages = await mergedPdf.copyPages(filledPdf, filledPdf.getPageIndices());
                         copiedPages.forEach((page) => mergedPdf.addPage(page));
@@ -3503,6 +4098,136 @@
 
                 // Hide Progress
                 window.app.hideProgress();
+
+                // --- GÉNÉRATION DE LA PAGE DE SYNTHÈSE ---
+                if (summaryList.length > 0) {
+                    try {
+                        let summaryPage = mergedPdf.addPage();
+                        const { width, height } = summaryPage.getSize();
+                        // Verify height (A4 is usually 841.89)
+                        const safeHeight = height || 842;
+
+                        const font = await mergedPdf.embedFont(PDFLib.StandardFonts.Helvetica);
+                        const fontBold = await mergedPdf.embedFont(PDFLib.StandardFonts.HelveticaBold);
+
+                        let currentY = safeHeight - 50;
+
+                        // Titre
+                        summaryPage.drawText('Récapitulatif - Liste des Caisses de Chômage / MMT', {
+                            x: 50,
+                            y: currentY,
+                            size: 16,
+                            font: fontBold
+                        });
+
+                        currentY -= 20;
+                        const nowStr = new Date().toLocaleDateString('fr-CH');
+                        summaryPage.drawText(`Généré le: ${nowStr}`, {
+                            x: 50,
+                            y: currentY,
+                            size: 10,
+                            font: font
+                        });
+
+                        currentY -= 40;
+
+                        // Mapping codes Caisses
+                        const CAISSE_MAPPING = {
+                            '49 - 000': 'Caisse de chômage CSI, Porrentruy',
+                            '26 - 000': 'Caisse Cantonale Jura, Saignelégier',
+                            '57 - 010': 'Syna Caisse de chômage, Olten',
+                            '60 - 321': 'Unia Caisse de chômage (321), Lausanne',
+                            '60 - 323': 'Unia Caisse de chômage (323), Lausanne'
+                        };
+
+                        // Regroupement par Caisse
+                        const groups = {};
+                        summaryList.forEach(item => {
+                            let rawCaisse = (item.caisse || 'Non défini').trim();
+
+                            // Normalisation simple du code (enlève tout sauf chiffres et tiret)
+                            // ex: "60 - 321" ou "60-321" -> on garde tel quel si c'est propre
+
+                            // Tentative de mapping
+                            let displayCaisse = CAISSE_MAPPING[rawCaisse] || rawCaisse;
+
+                            if (displayCaisse === '' || displayCaisse === '-') displayCaisse = 'Non défini';
+                            if (!groups[displayCaisse]) groups[displayCaisse] = [];
+                            groups[displayCaisse].push(item);
+                        });
+
+                        const sortedCaisses = Object.keys(groups).sort((a, b) => a.localeCompare(b));
+
+                        for (const caisse of sortedCaisses) {
+                            // Vérifier espace pour le titre de groupe (besoin d'au moins 40px)
+                            if (currentY < 60) {
+                                summaryPage = mergedPdf.addPage();
+                                currentY = safeHeight - 50;
+                                // Titre de rappel
+                                summaryPage.drawText('Récapitulatif (suite)', { x: 50, y: currentY, size: 10, font: font });
+                                currentY -= 30;
+                            }
+
+                            // Titre du groupe (Caisse)
+                            // Fond gris léger pour le header de groupe
+                            summaryPage.drawRectangle({
+                                x: 40,
+                                y: currentY - 5,
+                                width: 520,
+                                height: 20,
+                                color: PDFLib.rgb(0.9, 0.9, 0.9),
+                            });
+
+                            summaryPage.drawText(`${caisse}`, { // Modifié: Suppression emoji
+                                x: 50,
+                                y: currentY,
+                                size: 11,
+                                font: fontBold,
+                                color: PDFLib.rgb(0, 0, 0)
+                            });
+
+                            currentY -= 25;
+
+                            // Liste des participants du groupe
+                            const participants = groups[caisse].sort((a, b) => a.name.localeCompare(b.name));
+
+                            for (const p of participants) {
+                                if (currentY < 40) {
+                                    summaryPage = mergedPdf.addPage();
+                                    currentY = safeHeight - 50;
+                                    summaryPage.drawText('Récapitulatif (suite)', { x: 50, y: currentY, size: 10, font: font });
+                                    currentY -= 30;
+
+                                    // Rappel du titre du groupe sur nouvelle page
+                                    summaryPage.drawText(`${caisse} (suite)`, { // Modifié: Suppression emoji
+                                        x: 50,
+                                        y: currentY,
+                                        size: 11,
+                                        font: fontBold,
+                                        color: PDFLib.rgb(0.4, 0.4, 0.4)
+                                    });
+                                    currentY -= 20;
+                                }
+
+                                summaryPage.drawText(`- ${p.name || 'Nom inconnu'}`, { // Modifié: Remplacement bullet par tiret
+                                    x: 70, // Indentation
+                                    y: currentY,
+                                    size: 10,
+                                    font: font,
+                                    color: PDFLib.rgb(0, 0, 0)
+                                });
+                                currentY -= 15;
+                            }
+
+                            currentY -= 10; // Espace entre les groupes
+                        }
+
+                        console.log('✅ Page de synthèse ajoutée (groupée par caisse)');
+
+                    } catch (e) {
+                        console.error('Erreur lors de la création de la page de synthèse:', e);
+                    }
+                }
 
                 const mergedBytes = await mergedPdf.save();
                 const blob = new Blob([mergedBytes], { type: 'application/pdf' });
@@ -3939,8 +4664,52 @@
 
             grid.innerHTML = html;
 
-            // Apply custom rendering removed to fix editing bug
-            // document.querySelectorAll('.attendance-select').forEach(...)
+            // Apply custom rendering to show only code in select
+            const allSelects = document.querySelectorAll('.attendance-select');
+
+            // --- SMART PROPAGATION LOGIC (First Row triggers All) ---
+            if (allSelects.length >= 2) {
+                const firstMorning = allSelects[0];
+                const firstAfternoon = allSelects[1];
+
+                const attachPropagation = (masterSelect, periodIndex, periodName) => {
+                    masterSelect.addEventListener('change', function () {
+                        // Check value AFTER the change
+                        // Note: updateSelectDisplay will run on generic listener, we run this in parallel
+                        // Get value from either value property or temp option
+                        const val = this.value;
+
+                        if (val === 'O') {
+                            // Small timeout to let UI update first
+                            setTimeout(() => {
+                                if (confirm(`Voulez-vous appliquer "En ligne" (O) à TOUS les participants pour ${periodName} ?`)) {
+                                    const rows = document.querySelectorAll('.attendance-row');
+                                    // Skip first row
+                                    for (let i = 1; i < rows.length; i++) {
+                                        const rowSelects = rows[i].querySelectorAll('.attendance-select');
+                                        if (rowSelects[periodIndex]) {
+                                            rowSelects[periodIndex].value = 'O';
+                                            // Trigger change to update display/colors
+                                            rowSelects[periodIndex].dispatchEvent(new Event('change'));
+                                        }
+                                    }
+                                }
+                            }, 50);
+                        }
+                    });
+                };
+
+                attachPropagation(firstMorning, 0, "le matin");
+                attachPropagation(firstAfternoon, 1, "l'après-midi");
+            }
+            // --------------------------------------------------------
+
+            // allSelects.forEach(select => {
+            //    updateSelectDisplay(select);
+            //    select.addEventListener('change', function () {
+            //        updateSelectDisplay(this);
+            //    });
+            // });
 
             // Check if code G is used and show/hide comment requirement
             handleAttendanceCodeChange();
@@ -3952,54 +4721,8 @@
             updateCheckIndicator(isChecked);
         }
 
-        // Helper function updateSelectDisplay REMOVED to fix editing bug
-        // The standard select behavior is more reliable.
-
-        window.app.exportClassToExcel = async (classId) => {
-            try {
-                if (!classId) return;
-                const cls = await classService.getClass(classId);
-                if (!cls) return;
-
-                const participants = await participantService.getAllParticipants();
-                // Filter class participants
-                const classParticipants = participants.filter(p => cls.participantIds && cls.participantIds.includes(p.id));
-                const allAttendance = await dbService.getAll(STORES.ATTENDANCE);
-
-                // BOM for Excel to read UTF-8 correctly
-                let csvContent = "\uFEFFPrénom;Nom;Date Début;Date Fin;Heures Totales\n";
-
-                classParticipants.forEach(p => {
-                    // Calculate Total Hours (Global)
-                    let totalHours = 0;
-                    const pAllRecords = allAttendance.filter(r => r.participantId === p.id);
-                    pAllRecords.forEach(record => {
-                        const mCode = record ? (record.morningCode === 'P' ? 'X' : record.morningCode) : '';
-                        const aCode = record ? (record.afternoonCode === 'P' ? 'X' : record.afternoonCode) : '';
-                        if (mCode === 'X' || mCode === 'O') totalHours += 4;
-                        if (aCode === 'X' || aCode === 'O') totalHours += 2;
-                    });
-
-                    const dateStart = p.dateStart ? p.dateStart.split('-').reverse().join('.') : '-';
-                    const dateEnd = p.dateEnd ? p.dateEnd.split('-').reverse().join('.') : '-';
-
-                    csvContent += `${p.firstName};${p.lastName};${dateStart};${dateEnd};${totalHours}\n`;
-                });
-
-                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-                const url = URL.createObjectURL(blob);
-                const link = document.createElement("a");
-                link.href = url;
-                link.download = `Export_Classe_${cls.name.replace(/ /g, '_')}.csv`;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-
-            } catch (e) {
-                console.error(e);
-                alert('Erreur lors de l\'export: ' + e.message);
-            }
-        };
+        // Helper function to display only code in select - REMOVED for stability
+        // function updateSelectDisplay(selectElement) { ... }
 
         // Date change listener
         document.getElementById('attendance-date')?.addEventListener('change', async () => {
@@ -4102,6 +4825,9 @@
         }
 
         // Save Attendance Logic
+        // Helper to set all participants to Remote (O) for a period - REMOVED per user request
+        // window.app.setAllRemote = function(period) { ... };
+
         window.saveAttendance = async () => {
             if (!currentClassId) return;
 
@@ -4117,8 +4843,8 @@
                 const selects = row.querySelectorAll('select');
                 const commentInput = row.querySelector('.attendance-comment');
 
-                const morningCode = selects[0]?.value || 'X';
-                const afternoonCode = selects[1]?.value || 'X';
+                const morningCode = selects[0]?.value || '';
+                const afternoonCode = selects[1]?.value || '';
                 const comment = commentInput ? commentInput.value.trim() : '';
 
                 // Validation: Comment required if code G is used
@@ -4164,10 +4890,74 @@
                 // Update check indicator
                 updateCheckIndicator(true);
 
+                // Rafraîchir le tableau de bord pour afficher les changements
+                if (window.renderDashboard) {
+                    setTimeout(() => window.renderDashboard(), 100);
+                }
+
                 alert('Présences enregistrées avec succès !');
             } catch (error) {
                 console.error('Error saving attendance', error);
                 alert('Erreur lors de la sauvegarde.');
+            }
+        };
+
+        window.resetDayAttendance = async () => {
+            if (!currentClassId) return;
+            const date = document.getElementById('attendance-date').value;
+
+            if (!confirm(`Êtes-vous sûr de vouloir effacer TOUTES les présences pour la journée du ${date} ?\n\nCette action est irréversible.`)) {
+                return;
+            }
+
+            try {
+                // 1. Get all records for this class and date
+                const allAttendance = await dbService.getAll(STORES.ATTENDANCE);
+                const recordsToDelete = allAttendance.filter(r => r.classId === currentClassId && r.date === date);
+
+                // 2. Also check for the "check" record
+                const checkId = `check_${currentClassId}_${date}`;
+                const checkRecord = allAttendance.find(r => r.id === checkId);
+                if (checkRecord) recordsToDelete.push(checkRecord);
+
+                if (recordsToDelete.length === 0) {
+                    alert("Aucune donnée à effacer pour cette date.");
+                    return;
+                }
+
+                console.log(`🗑️ Deleting ${recordsToDelete.length} records for reset...`);
+
+                // 3. Delete them one by one
+                for (const record of recordsToDelete) {
+                    await dbService.delete(STORES.ATTENDANCE, record.id);
+                }
+
+                // 4. Reset UI
+                updateCheckIndicator(false);
+
+                // Reload grid (clears the View)
+                if (typeof loadAttendanceGrid === 'function') {
+                    // Get class again to be sure
+                    const classes = await classService.getAllClasses();
+                    const cls = classes.find(c => c.id === currentClassId);
+                    if (cls) loadAttendanceGrid(cls);
+                } else if (window.loadAttendanceGrid) {
+                    // Fallback
+                    const classes = await classService.getAllClasses();
+                    const cls = classes.find(c => c.id === currentClassId);
+                    if (cls) window.loadAttendanceGrid(cls);
+                }
+
+                // Refresh dashboard in background
+                if (window.renderDashboard) {
+                    setTimeout(() => window.renderDashboard(), 100);
+                }
+
+                alert("Journée réinitialisée avec succès.");
+
+            } catch (error) {
+                console.error('Error resetting day', error);
+                alert('Erreur lors de la suppression: ' + error.message);
             }
         };
 
@@ -4238,6 +5028,87 @@
             document.getElementById('import-preview').style.display = 'none';
             document.getElementById('form-import-pdf').reset();
         });
+
+        // CSV Export Feature
+        window.app.exportClassCSV = async () => {
+            if (!currentClassId) return;
+
+            try {
+                const classes = await classService.getAllClasses();
+                const cls = classes.find(c => c.id === currentClassId);
+                if (!cls) return;
+
+                const allP = await participantService.getAllParticipants();
+                const participants = allP.filter(p => cls.participantIds && cls.participantIds.includes(p.id));
+
+                // Fetch ALL attendance (no month filter)
+                // Fetch ALL attendance (no month filter)
+                const allAttendance = await dbService.getAll(window.STORES.ATTENDANCE);
+                console.log(`[CSV Debug] Total records in DB: ${allAttendance.length}`);
+                console.log(`[CSV Debug] Total participants in class: ${participants.length}`);
+
+                // Header
+                let csvContent = "Prénom;Nom;Date Début;Date Fin;Heures Totales\n";
+
+                for (const p of participants) {
+                    // Filter attendance for this participant
+                    // Filter attendance for this participant
+                    const rawRecords = allAttendance.filter(r => r.participantId === p.id);
+
+                    // Deduplicate by Date (Keep record with classId if priority)
+                    const uniqueRecords = {};
+                    rawRecords.forEach(r => {
+                        const existing = uniqueRecords[r.date];
+                        if (!existing) {
+                            uniqueRecords[r.date] = r;
+                        } else {
+                            // If existing has no classId but new one does, replace it
+                            if (!existing.classId && r.classId) {
+                                uniqueRecords[r.date] = r;
+                            }
+                        }
+                    });
+
+                    let totalHours = 0;
+                    Object.values(uniqueRecords).forEach(r => {
+                        // Normalize codes (Handle legacy 'P')
+                        const mCode = r.morningCode === 'P' ? 'X' : r.morningCode;
+                        const aCode = r.afternoonCode === 'P' ? 'X' : r.afternoonCode;
+
+                        // Check Morning (4h)
+                        if (['X', 'O'].includes(mCode)) totalHours += 4;
+
+                        // Check Afternoon (2h)
+                        if (['X', 'O'].includes(aCode)) totalHours += 2;
+                    });
+
+                    console.log(`[CSV Debug] ${p.lastName} ${p.firstName}: ${rawRecords.length} records found, ${totalHours} hours calculated.`);
+
+                    // Format dates (YYYY-MM-DD to DD.MM.YYYY)
+                    const formatDate = (d) => d ? d.split('-').reverse().join('.') : '';
+                    const dateStart = formatDate(p.dateStart);
+                    const dateEnd = formatDate(p.dateEnd);
+
+                    csvContent += `${p.firstName};${p.lastName};${dateStart};${dateEnd};${totalHours}\n`;
+                }
+
+                // BOM for Excel to read UTF-8 correctly
+                const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement("a");
+                const url = URL.createObjectURL(blob);
+                link.setAttribute("href", url);
+                link.setAttribute("download", `Heures_Totales_${cls.name.replace(/[^a-z0-9]/gi, '_')}.csv`);
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+
+            } catch (e) {
+                console.error("Error exporting CSV", e);
+                alert("Erreur lors de l'export CSV: " + e.message);
+            }
+        };
+
 
 
 
@@ -4389,18 +5260,32 @@
                     dateAdded: new Date().toISOString()
                 };
 
-                // Save to database
-                if (!dbService.data.signatures) dbService.data.signatures = [];
-                dbService.data.signatures.push(signature);
-                await dbService.save();
+                try {
+                    // Save to database using appropriate method
+                    if (dbService.saveSignature) {
+                        await dbService.saveSignature(signature);
+                    } else if (dbService.add) {
+                        await dbService.add('signatures', signature);
+                    } else {
+                        // Fallback for direct data access
+                        if (!dbService.data.signatures) dbService.data.signatures = [];
+                        dbService.data.signatures.push(signature);
+                        await dbService.save();
+                    }
 
-                // Reset form
-                nameInput.value = '';
-                fileInput.value = '';
+                    // Reset form
+                    nameInput.value = '';
+                    fileInput.value = '';
 
-                // Reload list
-                loadSignaturesList();
-                loadSignaturesDropdown();
+                    // Reload list
+                    loadSignaturesList();
+                    loadSignaturesDropdown();
+
+                    alert('✅ Signature enregistrée avec succès !');
+                } catch (error) {
+                    console.error('Error saving signature:', error);
+                    alert('❌ Erreur lors de l\'enregistrement de la signature');
+                }
             };
 
             reader.readAsDataURL(file);
@@ -4410,8 +5295,16 @@
             if (!confirm('Supprimer cette signature ?')) return;
 
             try {
-                dbService.data.signatures = dbService.data.signatures.filter(s => s.id !== id);
-                await dbService.save();
+                if (dbService.deleteSignature) {
+                    await dbService.deleteSignature(id);
+                } else if (dbService.delete) {
+                    await dbService.delete('signatures', id);
+                } else {
+                    // Fallback for direct data access
+                    dbService.data.signatures = dbService.data.signatures.filter(s => s.id !== id);
+                    await dbService.save();
+                }
+
                 loadSignaturesList();
                 loadSignaturesDropdown();
             } catch (error) {
@@ -4424,7 +5317,12 @@
             const container = document.getElementById('signatures-list');
             if (!container) return;
 
-            const signatures = await dbService.getAll('signatures');
+            let signatures = [];
+            if (dbService.getSignatures) {
+                signatures = await dbService.getSignatures();
+            } else if (dbService.getAll) {
+                signatures = await dbService.getAll('signatures');
+            }
 
             if (signatures.length === 0) {
                 container.innerHTML = '<p style="text-align: center; color: #666; padding: 2rem;">Aucune signature enregistrée.</p>';
@@ -4450,7 +5348,14 @@
             const select = document.getElementById('select-signature');
             if (!select) return;
 
-            const signatures = await dbService.getAll('signatures');
+            let signatures = [];
+            if (dbService.getSignatures) {
+                signatures = await dbService.getSignatures();
+            } else if (dbService.getAll) {
+                signatures = await dbService.getAll('signatures');
+            }
+
+            console.log('📋 Chargement dropdown signatures:', signatures.length, 'trouvée(s)');
 
             // Keep first option (Aucune signature)
             select.innerHTML = '<option value="">Aucune signature</option>';
@@ -4461,6 +5366,20 @@
                 option.textContent = sig.name;
                 select.appendChild(option);
             });
+
+            console.log('✅ Dropdown signatures chargé avec', signatures.length, 'option(s)');
+
+            // Restore last selection if available
+            if (window.app.lastSelectedSignatureId) {
+                // Check if the option actually exists (was not deleted)
+                const optionExists = Array.from(select.options).some(opt => opt.value === window.app.lastSelectedSignatureId);
+                if (optionExists) {
+                    select.value = window.app.lastSelectedSignatureId;
+                    // Trigger change event to update preview if needed
+                    const event = new Event('change');
+                    select.dispatchEvent(event);
+                }
+            }
         }
 
         // Signature preview on selection change
@@ -4478,7 +5397,13 @@
                         return;
                     }
 
-                    const signatures = await dbService.getAll('signatures');
+                    let signatures = [];
+                    if (dbService.getSignatures) {
+                        signatures = await dbService.getSignatures();
+                    } else if (dbService.getAll) {
+                        signatures = await dbService.getAll('signatures');
+                    }
+
                     const signature = signatures.find(s => s.id === sigId);
 
                     if (signature) {
@@ -4814,6 +5739,299 @@
 
 
 
+
+        // Global variable for cached template
+        window.cachedTemplate = null;
+
+        // Global function to save template
+        window.saveTemplateToStorage = async function (templateBuffer) {
+            try {
+                // Save to Firestore if available
+                if (window.dbService && window.dbService.saveGlobalTemplate) {
+                    await window.dbService.saveGlobalTemplate(templateBuffer);
+                    alert('✅ Modèle PDF sauvegardé en ligne pour tous les utilisateurs.');
+                } else {
+                    console.warn('DbService not available for saving template');
+                }
+            } catch (err) {
+                console.error('Error saving template:', err);
+                alert('Erreur lors de la sauvegarde du modèle en ligne.');
+            }
+        };
+
+        // Manual Template Upload Function
+        window.app.uploadGlobalTemplate = async function () {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.pdf';
+            input.onchange = async (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    try {
+                        const buffer = await file.arrayBuffer();
+                        await window.saveTemplateToStorage(buffer);
+                        // Update cache immediately
+                        window.cachedTemplate = buffer;
+                        console.log('✅ Template local updated from manual upload');
+                    } catch (err) {
+                        console.error('Error reading file:', err);
+                        alert('Erreur de lecture du fichier PDF.');
+                    }
+                }
+            };
+            input.click();
+        };
+
+        // Robust Individual PDF Export Function
+        window.app.exportParticipantPDF = async function (participantId) {
+            try {
+                const monthInput = document.getElementById('dashboard-month');
+                const monthValue = monthInput ? monthInput.value : new Date().toISOString().slice(0, 7);
+
+                // Get participant
+                const participants = await participantService.getAllParticipants();
+                const p = participants.find(x => x.id === participantId);
+                if (!p) {
+                    alert('Participant introuvable.');
+                    return;
+                }
+
+                // Prompt for signature date
+                const selectionResult = await window.app.requestSignatureDate();
+                if (!selectionResult) return;
+                const { date: signatureDateRaw, isCorrection, signatureId } = selectionResult;
+
+                // Format Date
+                const [sYear, sMonth, sDay] = signatureDateRaw.split('-');
+                const signatureDate = `${sDay}.${sMonth}.${sYear}`;
+
+                // Get Attendance (Robust Method)
+                let allAttendance = [];
+                if (window.dbService && window.dbService.getAttendances) {
+                    allAttendance = await window.dbService.getAttendances();
+                } else if (window.dbService && window.dbService.getAll) {
+                    allAttendance = await window.dbService.getAll('attendances');
+                }
+
+                const pAttendance = allAttendance.filter(r =>
+                    r.participantId === p.id &&
+                    r.date && r.date.startsWith(monthValue)
+                );
+
+                // Template Handling (using window.cachedTemplate)
+                if ((!p.originalPdf || p.originalPdf.byteLength === 0) && !window.cachedTemplate) {
+                    // Try fetching global
+                    if (window.dbService && window.dbService.getGlobalTemplate) {
+                        const globalTpl = await window.dbService.getGlobalTemplate();
+                        if (globalTpl) window.cachedTemplate = globalTpl;
+                    }
+                }
+
+                let templateToUse = null;
+                if (p.originalPdf && p.originalPdf.byteLength > 0) {
+                    if (p.originalPdf instanceof ArrayBuffer || ArrayBuffer.isView(p.originalPdf)) {
+                        const tempDoc = await PDFLib.PDFDocument.load(p.originalPdf);
+                        templateToUse = await tempDoc.save();
+                    }
+                } else if (window.cachedTemplate) {
+                    const tempDoc = await PDFLib.PDFDocument.load(window.cachedTemplate);
+                    templateToUse = await tempDoc.save();
+                } else {
+                    // Ask for template if missing
+                    if (!confirm(`Aucun modèle PDF pour ${p.firstName}. Voulez-vous en sélectionner un maintenant ?`)) return;
+                    await new Promise(resolve => {
+                        const input = document.createElement('input');
+                        input.type = 'file';
+                        input.accept = '.pdf';
+                        input.onchange = async (e) => {
+                            if (e.target.files[0]) {
+                                window.cachedTemplate = await e.target.files[0].arrayBuffer();
+                                window.saveTemplateToStorage(window.cachedTemplate);
+                            }
+                            resolve();
+                        };
+                        input.click();
+                    });
+                    if (window.cachedTemplate) {
+                        const tempDoc = await PDFLib.PDFDocument.load(window.cachedTemplate);
+                        templateToUse = await tempDoc.save();
+                    } else {
+                        return;
+                    }
+                }
+
+                if (!templateToUse) {
+                    alert('Impossible de générer le PDF sans modèle.');
+                    return;
+                }
+
+                // Generate
+                window.app.showProgress('Génération du PDF...');
+                const filledBytes = await window.pdfGenerator.generatePDF(p, pAttendance, templateToUse, signatureDate, isCorrection, signatureId);
+                window.app.hideProgress();
+
+                // Download
+                const blob = new Blob([filledBytes], { type: 'application/pdf' });
+                const url = URL.createObjectURL(blob);
+                window.open(url, '_blank');
+
+            } catch (error) {
+                window.app.hideProgress();
+                console.error('Individual export error:', error);
+                alert('Erreur lors de l\'export : ' + error.message);
+            }
+        };
+        // Dashboard Cell Editing
+        window.app.editDashboardCell = async (participantId, date, period, currentCode, currentComment, className, classId) => {
+            // Create modal HTML
+            const modalHtml = `
+                <div id="modal-edit-attendance" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+                    <div style="background: white; padding: 2rem; border-radius: 12px; max-width: 500px; width: 90%;">
+                        <h3 style="margin-top: 0;">Modifier la présence</h3>
+                        <p style="color: #666; margin-bottom: 1.5rem;">
+                            <strong>Date:</strong> ${date}<br>
+                            <strong>Période:</strong> ${period === 'morning' ? 'Matin' : 'Après-midi'}<br>
+                            <strong>Classe:</strong> ${className}
+                        </p>
+                        
+                        <div style="margin-bottom: 1.5rem;">
+                            <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Code de présence</label>
+                            <select id="attendance-code-select" style="width: 100%; padding: 0.75rem; border: 1px solid #ddd; border-radius: 8px; font-size: 1rem;">
+                                <option value="" ${!currentCode ? 'selected' : ''}>-- (Vide) --</option>
+                                ${Object.values(window.ATTENDANCE_CODES).filter(c => c.code !== '').map(c => `
+                                    <option value="${c.code}" ${currentCode === c.code ? 'selected' : ''}>${c.code} - ${c.label}</option>
+                                `).join('')}
+                            </select>
+                        </div>
+                        
+                        <div id="comment-field" style="margin-bottom: 1.5rem; display: ${currentCode === 'G' ? 'block' : 'none'};">
+                            <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Commentaire (obligatoire pour code G)</label>
+                            <textarea id="attendance-comment" style="width: 100%; padding: 0.75rem; border: 1px solid #ddd; border-radius: 8px; font-size: 1rem; min-height: 80px; font-family: inherit;" placeholder="Précisez la raison...">${currentComment || ''}</textarea>
+                        </div>
+                        
+                        <div style="display: flex; gap: 1rem; justify-content: flex-end;">
+                            <button onclick="window.app.closeEditAttendanceModal()" class="btn-secondary">Annuler</button>
+                            <button onclick="window.app.saveAttendanceFromDashboard('${participantId}', '${date}', '${period}', '', '${classId}')" class="btn-primary">Enregistrer</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Remove existing modal if any
+            const existingModal = document.getElementById('modal-edit-attendance');
+            if (existingModal) existingModal.remove();
+
+            // Add modal to body
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+            // Add event listener to show/hide comment field
+            const codeSelect = document.getElementById('attendance-code-select');
+            const commentField = document.getElementById('comment-field');
+
+            codeSelect.addEventListener('change', (e) => {
+                if (e.target.value === 'G') {
+                    commentField.style.display = 'block';
+                } else {
+                    commentField.style.display = 'none';
+                }
+            });
+        };
+
+        window.app.closeEditAttendanceModal = () => {
+            const modal = document.getElementById('modal-edit-attendance');
+            if (modal) modal.remove();
+        };
+
+        window.app.saveAttendanceFromDashboard = async (participantId, date, period, className, classId) => {
+            console.log(`💾 Saving Dashboard: ${period} -> ${participantId} @ ${date} (Class: ${classId})`);
+            const codeSelect = document.getElementById('attendance-code-select');
+            const commentTextarea = document.getElementById('attendance-comment');
+
+            const code = codeSelect.value;
+            const comment = commentTextarea.value.trim();
+
+            // Validation for code G
+            if (code === 'G' && !comment) {
+                alert('Un commentaire est obligatoire pour le code G (Autres absences justifiées).\n\nVeuillez préciser la raison.');
+                return;
+            }
+
+            try {
+                // Get existing records
+                const allAttendance = await dbService.getAll(STORES.ATTENDANCE);
+
+                // Construct precise Target ID
+                const targetId = `${classId}_${date}_${participantId}`;
+
+                // 1. Try finding by Exact ID
+                let record = allAttendance.find(r => r.id === targetId);
+
+                // 2. If not found, try finding compatibility (same user/date/class)
+                if (!record) {
+                    record = allAttendance.find(r => r.participantId === participantId && r.date === date && r.classId === classId);
+                }
+
+                // 3. Fallback: Legacy records without classId
+                if (!record) {
+                    record = allAttendance.find(r => r.participantId === participantId && r.date === date && !r.classId);
+                    if (record) {
+                        console.log('⚠️ Updating legacy record with ClassID');
+                        record.classId = classId;
+                    }
+                }
+
+                if (!record) {
+                    console.log('✨ Creating new attendance record');
+                    record = {
+                        classId: classId,
+                        participantId,
+                        date,
+                        morningCode: '',
+                        afternoonCode: '',
+                        comment: ''
+                    };
+                }
+
+                // Apply changes strictly to the requested period
+                if (period === 'morning') {
+                    record.morningCode = code;
+                } else if (period === 'afternoon') {
+                    record.afternoonCode = code;
+                }
+
+                // Update comment
+                record.comment = comment;
+
+                // Save
+                // Ensure we use the correct service method if available (e.g. for Firebase)
+                if (window.attendanceService && window.attendanceService.saveAttendance) {
+                    // Note: attendanceService.saveAttendance handles ID generation: `${record.classId}_${record.date}_${record.participantId}`
+                    await window.attendanceService.saveAttendance([record]);
+                } else {
+                    // Fallback manual save
+                    if (!record.id) record.id = targetId;
+                    await dbService.update(STORES.ATTENDANCE, record);
+                }
+
+                window.app.closeEditAttendanceModal();
+
+                // Refresh Dashboard with scroll preservation to update totals
+                if (typeof renderDashboard === 'function') {
+                    const scrollPos = window.scrollY;
+                    await renderDashboard();
+                    window.scrollTo(0, scrollPos);
+                } else {
+                    window.location.reload();
+                }
+
+                console.log('✅ Saved successfully');
+
+            } catch (error) {
+                console.error('❌ Save error:', error);
+                alert('Erreur lors de la sauvegarde: ' + error.message);
+            }
+        };
+
     </script>
 
     <!-- Footer -->
@@ -4838,7 +6056,7 @@
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
         import { getAuth, onAuthStateChanged, signOut } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
-        import { getFirestore, collection, doc, getDoc, getDocs, setDoc, deleteDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+        import { getFirestore, collection, doc, getDoc, getDocs, setDoc, deleteDoc, updateDoc, addDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
 
         const firebaseConfig = {
             apiKey: "AIzaSyC9Jp7YGeYxYja5rIRXSdVQFvVMmiMU7Ko",
@@ -4852,6 +6070,369 @@
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
+
+        // --- FIREBASE ADAPTER DEFINITION ---
+        class FirebaseStorageAdapter {
+            constructor() {
+                this.cache = {};
+                this.initialized = false;
+            }
+
+            async init() {
+                if (this.initialized) return;
+                try {
+                    // Load Participants
+                    const participantsSnap = await getDocs(collection(db, 'participants'));
+                    const participants = [];
+                    participantsSnap.forEach(doc => participants.push({ id: doc.id, ...doc.data() }));
+                    this.cache.participants = participants;
+
+                    // Load Classes
+                    const classesSnap = await getDocs(collection(db, 'classes'));
+                    const classes = [];
+                    classesSnap.forEach(doc => classes.push({ id: doc.id, ...doc.data() }));
+                    this.cache.classes = classes;
+
+                    // Load Attendance
+                    const attendancesSnap = await getDocs(collection(db, 'attendances'));
+                    const attendances = [];
+                    attendancesSnap.forEach(doc => attendances.push({ id: doc.id, ...doc.data() }));
+                    this.cache.attendances = attendances;
+
+                    this.initialized = true;
+                    console.log('✅ Firebase cache initialized');
+                } catch (error) {
+                    console.error('❌ Error initializing Firebase cache:', error);
+                    this.loadFromLocalStorage();
+                }
+            }
+
+            loadFromLocalStorage() {
+                this.cache.participants = JSON.parse(localStorage.getItem('participants') || '[]');
+                this.cache.classes = JSON.parse(localStorage.getItem('classes') || '[]');
+                this.cache.attendances = JSON.parse(localStorage.getItem('attendances') || '[]');
+                console.log('⚠️ Loaded from localStorage (fallback)');
+            }
+
+            async getParticipants() { await this.init(); return this.cache.participants || []; }
+
+            async saveParticipant(participant) {
+                await this.init();
+                try {
+                    // Clone to avoid mutating the original object used by the app / cache
+                    const pToSave = { ...participant };
+
+                    // Convert ArrayBuffer to Base64 for Firestore
+                    if (pToSave.originalPdf && pToSave.originalPdf instanceof ArrayBuffer) {
+                        let binary = '';
+                        const bytes = new Uint8Array(pToSave.originalPdf);
+                        const len = bytes.byteLength;
+                        for (let i = 0; i < len; i++) {
+                            binary += String.fromCharCode(bytes[i]);
+                        }
+                        pToSave.originalPdf = window.btoa(binary);
+                        pToSave.isBase64Pdf = true;
+                    }
+
+                    if (pToSave.id) {
+                        const docRef = doc(db, 'participants', pToSave.id);
+                        await setDoc(docRef, pToSave);
+                        const index = this.cache.participants.findIndex(p => p.id === participant.id);
+                        if (index !== -1) this.cache.participants[index] = participant;
+                        else this.cache.participants.push(participant);
+                    } else {
+                        const docRef = await addDoc(collection(db, 'participants'), pToSave);
+                        participant.id = docRef.id;
+                        this.cache.participants.push(participant);
+                    }
+                    return participant;
+                } catch (error) { console.error('❌ Error saving participant:', error); throw error; }
+            }
+
+            async deleteParticipant(participantId) {
+                await this.init();
+                try {
+                    await deleteDoc(doc(db, 'participants', participantId));
+                    this.cache.participants = this.cache.participants.filter(p => p.id !== participantId);
+                } catch (error) { console.error('❌ Error deleting participant:', error); throw error; }
+            }
+
+            async getClasses() { await this.init(); return this.cache.classes || []; }
+
+            // Archived Participants Support for Firebase
+            async getArchivedParticipants() {
+                await this.init();
+                // If we want to support archives in Firebase, we should probably have a collection
+                // For now, let's try to fetch if it exists, or return empty
+                try {
+                    const snap = await getDocs(collection(db, 'archivedParticipants'));
+                    const archived = [];
+                    snap.forEach(doc => archived.push({ id: doc.id, ...doc.data() }));
+                    return archived;
+                } catch (e) {
+                    console.warn('Archives not supported or empty in Firebase yet');
+                    return [];
+                }
+            }
+
+            async saveArchivedParticipant(participant) {
+                await this.init();
+                try {
+                    const docRef = doc(db, 'archivedParticipants', participant.id);
+                    await setDoc(docRef, participant);
+                    return participant;
+                } catch (e) { console.error('Error saving archive', e); throw e; }
+            }
+
+            async deleteArchivedParticipant(id) {
+                await this.init();
+                try {
+                    await deleteDoc(doc(db, 'archivedParticipants', id));
+                } catch (e) { console.error('Error deleting archive', e); throw e; }
+            }
+
+            // Signatures Support for Firebase
+            async getSignatures() {
+                await this.init();
+
+                // Retourner depuis le cache si disponible
+                if (this.cache.signatures && this.cache.signatures.length > 0) {
+                    return this.cache.signatures;
+                }
+
+                try {
+                    const snap = await getDocs(collection(db, 'signatures'));
+                    const signatures = [];
+                    snap.forEach(doc => signatures.push({ id: doc.id, ...doc.data() }));
+                    this.cache.signatures = signatures;
+                    return signatures;
+                } catch (e) {
+                    console.warn('Signatures collection not found or empty');
+                    return [];
+                }
+            }
+
+            async saveSignature(signature) {
+                await this.init();
+                try {
+                    const docRef = doc(db, 'signatures', signature.id);
+                    await setDoc(docRef, signature);
+
+                    // Mettre à jour le cache local
+                    if (!this.cache.signatures) this.cache.signatures = [];
+                    const index = this.cache.signatures.findIndex(s => s.id === signature.id);
+                    if (index !== -1) {
+                        this.cache.signatures[index] = signature;
+                    } else {
+                        this.cache.signatures.push(signature);
+                    }
+
+                    console.log('✅ Signature saved to Firebase');
+                    return signature;
+                } catch (e) {
+                    console.error('❌ Error saving signature:', e);
+                    throw e;
+                }
+            }
+
+            async deleteSignature(id) {
+                await this.init();
+                try {
+                    await deleteDoc(doc(db, 'signatures', id));
+                    console.log('✅ Signature deleted from Firebase');
+                } catch (e) {
+                    console.error('❌ Error deleting signature:', e);
+                    throw e;
+                }
+            }
+
+            async saveClass(classItem) {
+                await this.init();
+                try {
+                    if (classItem.id) {
+                        const docRef = doc(db, 'classes', classItem.id);
+                        await setDoc(docRef, classItem);
+                        const index = this.cache.classes.findIndex(c => c.id === classItem.id);
+                        if (index !== -1) this.cache.classes[index] = classItem;
+                        else this.cache.classes.push(classItem);
+                    } else {
+                        const docRef = await addDoc(collection(db, 'classes'), classItem);
+                        classItem.id = docRef.id;
+                        this.cache.classes.push(classItem);
+                    }
+                    return classItem;
+                } catch (error) { console.error('❌ Error saving class:', error); throw error; }
+            }
+
+            async deleteClass(classId) {
+                await this.init();
+                try {
+                    await deleteDoc(doc(db, 'classes', classId));
+                    this.cache.classes = this.cache.classes.filter(c => c.id !== classId);
+                } catch (error) { console.error('❌ Error deleting class:', error); throw error; }
+            }
+
+            // Template Management for Collaboration (Using participants collection for guaranteed access)
+            async getGlobalTemplate() {
+                await this.init();
+                try {
+                    // Use a special ID in participants collection to ensure permission access
+                    const docRef = doc(db, 'participants', 'GLOBAL_TEMPLATE_CONFIG');
+                    const docSnap = await getDoc(docRef);
+                    if (docSnap.exists()) {
+                        const data = docSnap.data();
+                        if (data.templateBase64) {
+                            // Convert Base64 back to ArrayBuffer
+                            const binaryParams = window.atob(data.templateBase64);
+                            const bytes = new Uint8Array(binaryParams.length);
+                            for (let i = 0; i < binaryParams.length; i++) {
+                                bytes[i] = binaryParams.charCodeAt(i);
+                            }
+                            return bytes.buffer;
+                        }
+                    }
+                    return null;
+                } catch (error) {
+                    console.warn('⚠️ No global template found or error fetching from participants:', error);
+                    return null;
+                }
+            }
+
+            async saveGlobalTemplate(arrayBuffer) {
+                await this.init();
+                try {
+                    // Convert ArrayBuffer to Base64
+                    let binary = '';
+                    const bytes = new Uint8Array(arrayBuffer);
+                    const len = bytes.byteLength;
+                    for (let i = 0; i < len; i++) {
+                        binary += String.fromCharCode(bytes[i]);
+                    }
+                    const base64 = window.btoa(binary);
+
+                    // Save as a special participant document
+                    // Flag 'isHidden' is added to prevent it from showing on dashboard
+                    await setDoc(doc(db, 'participants', 'GLOBAL_TEMPLATE_CONFIG'), {
+                        firstName: 'SYSTEM',
+                        lastName: 'TEMPLATE',
+                        type: 'CONFIG', // Flag to identify it's not a real person
+                        isHidden: true, // Explicitly hide from dashboard
+                        templateBase64: base64,
+                        updatedAt: new Date().toISOString(),
+                        updatedBy: auth.currentUser ? auth.currentUser.email : 'unknown'
+                    });
+                    console.log('✅ Global template saved to Firebase (participants collection)');
+                } catch (error) {
+                    console.error('❌ Error saving global template:', error);
+                    throw error;
+                }
+            }
+
+            async getAttendances() { await this.init(); return this.cache.attendances || []; }
+
+            async saveAttendances(attendances) {
+                await this.init();
+                try {
+                    for (const attendance of attendances) {
+                        if (attendance.id) {
+                            const docRef = doc(db, 'attendances', attendance.id);
+                            await setDoc(docRef, attendance);
+                        } else {
+                            const docRef = await addDoc(collection(db, 'attendances'), attendance);
+                            attendance.id = docRef.id;
+                        }
+                    }
+
+                    // Mettre à jour le cache local
+                    for (const attendance of attendances) {
+                        const index = this.cache.attendances.findIndex(a => a.id === attendance.id);
+                        if (index !== -1) {
+                            this.cache.attendances[index] = attendance;
+                        } else {
+                            this.cache.attendances.push(attendance);
+                        }
+                    }
+
+                    console.log('✅ Attendances saved to Firebase');
+                } catch (error) { console.error('❌ Error saving attendances:', error); throw error; }
+            }
+
+            // Generic CRUD wrappers for compatibility with jsonDbService interface
+            async get(storeName, id) {
+                const all = await this.getAll(storeName);
+                return all.find(i => i.id === id);
+            }
+
+            async add(storeName, item) {
+                return this.update(storeName, item);
+            }
+
+            async update(storeName, item) {
+                let savedItem;
+                switch (storeName) {
+                    case 'participants':
+                        savedItem = (await this.saveParticipant(item)).participant || item;
+                        break;
+                    case 'classes':
+                        savedItem = await this.saveClass(item);
+                        break;
+                    case 'attendances':
+                    case 'attendance':
+                        await this.saveAttendances([item]);
+                        savedItem = item;
+                        break;
+                    case 'signatures':
+                        savedItem = await this.saveSignature(item);
+                        break;
+                    case 'archivedParticipants':
+                        savedItem = await this.saveArchivedParticipant(item);
+                        break;
+                    default:
+                        console.warn(`Update called on unknown store: ${storeName}`);
+                        throw new Error(`Unknown store: ${storeName}`);
+                }
+                return savedItem ? savedItem.id : item.id;
+            }
+
+            async delete(storeName, id) {
+                switch (storeName) {
+                    case 'participants': return this.deleteParticipant(id);
+                    case 'classes': return this.deleteClass(id);
+                    case 'attendances':
+                    case 'attendance':
+                        // Delete attendance not implemented explicitly in Adapter but needed
+                        await this.init();
+                        try {
+                            await deleteDoc(doc(db, 'attendances', id));
+                            this.cache.attendances = this.cache.attendances.filter(a => a.id !== id);
+                        } catch (e) { console.error(e); }
+                        break;
+                    case 'signatures': return this.deleteSignature(id);
+                    case 'archivedParticipants': return this.deleteArchivedParticipant(id);
+                    default:
+                        console.warn(`Delete called on unknown store: ${storeName}`);
+                }
+            }
+
+            async getAll(storeName) {
+                switch (storeName) {
+                    case 'participants': return this.getParticipants();
+                    case 'classes': return this.getClasses();
+                    case 'classes': return this.getClasses();
+                    case 'attendances':
+                    case 'attendance': return this.getAttendances(); // Handle both singular and plural
+                    case 'signatures': return this.getSignatures();
+                    case 'archivedParticipants': return this.getArchivedParticipants();
+                    default:
+                        console.warn(`getAll called with unknown store: ${storeName}`);
+                        return [];
+                }
+            }
+        }
+
+        // Instantiate Adapter
+        window.firebaseStorage = new FirebaseStorageAdapter();
+        console.log('🔥 Firebase Storage Adapter loaded via Module Script');
 
         // Rendre db accessible globalement
         window.firebaseDb = db;
@@ -4873,13 +6454,32 @@
                 }
 
                 // Recharger les données depuis Firestore maintenant que l'utilisateur est connecté
-                if (window.dbService && window.dbService.loadFromFile) {
+                if (window.dbService) {
                     console.log('🔄 Rechargement des données depuis Firestore...');
-                    window.dbService.loadFromFile().then(() => {
+                    const reloadPromise = window.dbService.loadFromFile
+                        ? window.dbService.loadFromFile()
+                        : (window.dbService.init ? window.dbService.init() : Promise.resolve());
+
+                    reloadPromise.then(() => {
                         console.log('✅ Données rechargées');
                         // Rafraîchir l'affichage si on est sur le dashboard
                         if (window.renderDashboard) window.renderDashboard();
-                        if (window.loadParticipantsView) window.loadParticipantsView();
+
+                        // Load Global Template
+                        if (window.dbService && window.dbService.getGlobalTemplate) {
+                            console.log('🔄 Chargement du template global...');
+                            window.dbService.getGlobalTemplate().then(template => {
+                                if (template) {
+                                    window.cachedTemplate = template;
+                                    console.log('✅ Template global chargé');
+                                }
+                            });
+                        }
+                        // Also try to refresh the active view if possible
+                        const participantsView = document.getElementById('participants-view');
+                        if (window.loadParticipantsView && participantsView && participantsView.style.display !== 'none') {
+                            window.loadParticipantsView();
+                        }
                     });
                 }
             }
