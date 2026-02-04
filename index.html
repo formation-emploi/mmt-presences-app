@@ -1063,6 +1063,7 @@
                 </div>
                 <!-- Mini helper script to reload signatures -->
                 <script>
+                    window.app = window.app || {};
                     window.app.reloadSignatures = async () => {
                         const select = document.getElementById('select-signature');
                         if (!select) return;
@@ -1656,6 +1657,9 @@
 
         // Database Service (SharePoint/JSON Mode with LocalStorage Fallback)
         const dbService = {
+            // Local cache to satisfy legacy synchronous access (e.g. renderDashboard)
+            data: { participants: [], classes: [], attendance: [], archivedParticipants: [] },
+
             // FIREBASE ADAPTER CONFIGURATION
             // This replaces the local/SharePoint dbService
 
@@ -1687,26 +1691,29 @@
             async delete(storeName, id) {
                 if (storeName === STORES.PARTICIPANTS) return await window.firebaseStorage.deleteParticipant(id);
                 if (storeName === STORES.CLASSES) return await window.firebaseStorage.deleteClass(id);
-                // Attendance delete not strictly implemented in adapter but rarely used directly by ID
             },
 
-            // Signatures
             async getSignatures() {
-                try {
-                    // Quick fix: access firestore directly or add to adapter if missing
-                    // Assuming adapter handles it or we use direct firestore here
-                    // Ideally update adapter, but for now lets return empty or try/catch
-                    return [];
-                } catch (e) { return []; }
+                try { return []; } catch (e) { return []; }
             },
 
             async init() {
                 console.log('🔥 Initializing Firebase DB Service...');
                 if (window.firebaseStorage) {
                     await window.firebaseStorage.init();
-                    return { participants: [], classes: [], attendance: [] }; // Dummy return, data is async
+
+                    // Sync local data cache with Firebase cache to prevent crashes in legacy code
+                    if (window.firebaseStorage.cache) {
+                        this.data.participants = window.firebaseStorage.cache.participants || [];
+                        this.data.classes = window.firebaseStorage.cache.classes || [];
+                        this.data.attendance = window.firebaseStorage.cache.attendances || [];
+                        // Firebase adapter doesn't explicitly separate archived yet, so keep empty or filter
+                        this.data.archivedParticipants = [];
+                    }
+
+                    return this.data;
                 }
-                return { participants: [], classes: [], attendance: [] };
+                return this.data;
             },
 
             // Compatibility for Auth Callback and Legacy calls
