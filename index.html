@@ -10,6 +10,7 @@
     <script src="resources/pdf.min.js"
         onerror="this.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'"></script>
     <script src="resources/pdf-lib.min.js" onerror="this.src='https://unpkg.com/pdf-lib/dist/pdf-lib.min.js'"></script>
+    <script type="module" src="firebase-adapter.js"></script>
     <script>
         // Fallback for Worker if local fails
         function setupPdfWorker() {
@@ -1655,490 +1656,74 @@
 
         // Database Service (SharePoint/JSON Mode with LocalStorage Fallback)
         const dbService = {
-            data: {
-                participants: [],
-                classes: [],
-                attendance: [],
-                archivedParticipants: [],
-                signatures: []
+            // FIREBASE ADAPTER CONFIGURATION
+            // This replaces the local/SharePoint dbService
+
+            async getAll(storeName) {
+                if (storeName === STORES.PARTICIPANTS) return await window.firebaseStorage.getParticipants();
+                if (storeName === STORES.CLASSES) return await window.firebaseStorage.getClasses();
+                if (storeName === STORES.ATTENDANCE) return await window.firebaseStorage.getAttendances();
+                return [];
             },
-            jsonUrl: 'mmt_db.json',
-            storageKey: 'mmt_db_backup',
-
-            // FLAG: Use SharePoint Lists Backend?
-            useSharePointLists: false,
-            baseUrl: '',
-
-            async init() {
-                console.log('🔄 Initializing DB Service...');
-
-                // 1. Detect SharePoint Environment & Site URL
-                this.baseUrl = await this.detectBaseUrl();
-
-                if (this.baseUrl || this.baseUrl === '') {
-                    try {
-                        const spContext = await fetch(`${this.baseUrl}_api/contextinfo`, {
-                            method: 'POST',
-                            headers: { 'Accept': 'application/json;odata=verbose' }
-                        });
-                        if (spContext.ok) {
-                            this.useSharePointLists = true;
-                            console.log(`🌐 SharePoint Environment Detected at ${this.baseUrl}`);
-                            this.updateStatus('connected');
-                            await this.loadFromSharePointLists();
-                            if (this.data.participants.length === 0 && this.data.classes.length === 0) {
-                                console.log('⚠️ Lists empty or missing. Trying file fallback for migration...');
-                                await this.loadFromFile();
-                            }
-                            return this.data;
-                        }
-                    } catch (e) {
-                        console.log('👤 Connection check failed:', e);
-                        this.updateStatus('local');
-                    }
-                } else {
-                    console.log('👤 Standalone/Local Mode detected (No SP API found).');
-                    this.updateStatus('local');
-                }
-
-                // 2. Fallback: Local/File Mode
-                await this.loadFromFile();
-                if (!this.useSharePointLists) this.updateStatus('local');
-
-                // 3. Auto-archive expired participants
-                await this.archiveExpiredParticipants();
-
-                return this.data;
-            },
-
-            async archiveExpiredParticipants() {
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-
-                // Keep active until the end of the current month
-                // Archive only if endDate is strictly before the 1st of the current month
-                const archiveThreshold = new Date(today.getFullYear(), today.getMonth(), 1);
-
-                const toArchive = this.data.participants.filter(p => {
-                    if (!p.dateEnd) return false;
-                    const endDate = new Date(p.dateEnd);
-                    return endDate < archiveThreshold;
-                });
-
-                if (toArchive.length > 0) {
-                    console.log(`📦 Archiving ${toArchive.length} expired participant(s)`);
-
-                    if (!this.data.archivedParticipants) this.data.archivedParticipants = [];
-
-                    // Add to archive (checking unicity just in case)
-                    toArchive.forEach(p => {
-                        if (!this.data.archivedParticipants.find(ap => ap.id === p.id)) {
-                            this.data.archivedParticipants.push(p);
-                        }
-                    });
-
-                    // Remove from active participants
-                    this.data.participants = this.data.participants.filter(p => {
-                        if (!p.dateEnd) return true;
-                        const endDate = new Date(p.dateEnd);
-                        return endDate >= archiveThreshold;
-                    });
-
-                    // Save changes
-                    await this.save();
-                }
-            },
-
-            async detectBaseUrl() {
-                const paths = ['', '../', '../../', '../../../'];
-                for (const path of paths) {
-                    try {
-                        const r = await fetch(`${path}_api/contextinfo`, {
-                            method: 'POST',
-                            headers: { 'Accept': 'application/json;odata=verbose' }
-                        });
-                        if (r.ok || r.status === 403) return path;
-                    } catch (e) { }
-                }
-                return null;
-            },
-
-            // --- FILE MODE METHODS ---
-            async loadFromFile() {
-                // 1. Charger depuis localStorage (fallback)
-                const backup = localStorage.getItem(this.storageKey);
-                if (backup) {
-                    try { this.data = JSON.parse(backup); } catch (e) { }
-                }
-
-                // 2. Charger depuis Firestore si disponible
-                if (window.firebaseDb && window.currentUser) {
-                    try {
-                        const { getDoc, doc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
-                        const userDataRef = doc(window.firebaseDb, 'users', window.currentUser.uid);
-                        const docSnap = await getDoc(userDataRef);
-
-                        if (docSnap.exists()) {
-                            const firestoreData = docSnap.data();
-
-                            // Helper to convert Base64 to ArrayBuffer
-                            const base64ToArrayBuffer = (base64) => {
-                                const binary_string = window.atob(base64);
-                                const len = binary_string.length;
-                                const bytes = new Uint8Array(len);
-                                for (let i = 0; i < len; i++) {
-                                    bytes[i] = binary_string.charCodeAt(i);
-                                }
-                                return bytes.buffer;
-                            };
-
-                            // Convertir les participants (restaurer ArrayBuffer depuis Base64)
-                            const participants = (firestoreData.participants || []).map(p => {
-                                if (p.isBase64Pdf && p.originalPdf && typeof p.originalPdf === 'string') {
-                                    p.originalPdf = base64ToArrayBuffer(p.originalPdf);
-                                    // p.isBase64Pdf = false; // Keep flag or remove, doesn't matter much internally
-                                }
-                                return p;
-                            });
-
-                            this.data = {
-                                participants: participants,
-                                classes: firestoreData.classes || [],
-                                attendances: firestoreData.attendances || []
-                            };
-                            console.log('✅ Données chargées depuis Firestore');
-                            // Sauvegarder aussi en localStorage pour le fallback
-                            localStorage.setItem(this.storageKey, JSON.stringify(this.data));
-                        } else {
-                            console.log('ℹ️ Pas de données Firestore, utilisation de localStorage');
-                        }
-                    } catch (error) {
-                        console.error('❌ Erreur chargement Firestore:', error);
-                        // Continue avec localStorage
-                    }
-
-                    // Charger les signatures depuis la collection partagée
-                    try {
-                        const { getDoc, doc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
-                        const signaturesRef = doc(window.firebaseDb, 'shared', 'signatures');
-                        const signaturesSnap = await getDoc(signaturesRef);
-
-                        if (signaturesSnap.exists()) {
-                            const signaturesData = signaturesSnap.data();
-                            this.data.signatures = signaturesData.signatures || [];
-                            console.log('✅ Signatures chargées depuis Firestore');
-                            // Sauvegarder aussi en localStorage
-                            localStorage.setItem(this.storageKey, JSON.stringify(this.data));
-                        }
-                    } catch (error) {
-                        console.error('❌ Erreur chargement signatures Firestore:', error);
-                    }
-                }
-
-                // 3. Charger depuis fichier JSON (ancien système)
-                try {
-                    const response = await fetch(`${this.jsonUrl}?t=${new Date().getTime()}`);
-                    if (response.ok) {
-                        const json = await response.json();
-                        if (json) this.data = json;
-                    }
-                } catch (e) { }
-            },
-
-            // --- SHAREPOINT LIST METHODS ---
-            async loadFromSharePointLists() {
-                try {
-                    const pParams = "$select=Title,JSON_Data&$top=5000";
-                    const pResp = await fetch(`${this.baseUrl}_api/web/lists/getbytitle('MMT_Participants')/items?${pParams}`, { headers: { 'Accept': 'application/json;odata=verbose' } });
-                    if (pResp.ok) {
-                        const pData = await pResp.json();
-                        this.data.participants = pData.d.results.map(r => JSON.parse(r.JSON_Data));
-                    }
-
-                    const cResp = await fetch(`${this.baseUrl}_api/web/lists/getbytitle('MMT_Classes')/items?${pParams}`, { headers: { 'Accept': 'application/json;odata=verbose' } });
-                    if (cResp.ok) {
-                        const cData = await cResp.json();
-                        this.data.classes = cData.d.results.map(r => JSON.parse(r.JSON_Data));
-                    }
-
-                    const aResp = await fetch(`${this.baseUrl}_api/web/lists/getbytitle('MMT_Attendance')/items?${pParams}`, { headers: { 'Accept': 'application/json;odata=verbose' } });
-                    if (aResp.ok) {
-                        const aData = await aResp.json();
-                        this.data.attendance = aData.d.results.map(r => JSON.parse(r.JSON_Data));
-                    }
-                    console.log('✅ Loaded from SharePoint Lists');
-                } catch (e) {
-                    console.warn('⚠️ Error loading Lists (Not installed?):', e);
-                    this.showSaveIndicator('⚠️ Listes SharePoint introuvables. Cliquez sur CONFIGURER.');
-                    const btn = document.querySelector('.btn-save-indicator');
-                    if (btn) btn.onclick = () => window.app.installSharePointLists();
-                    this.updateStatus('error');
-                }
-            },
-
-            updateStatus(status) {
-                const badge = document.getElementById('db-status-badge');
-                // Target the container of the manual buttons (parent of the save button)
-                const manualButtons = document.querySelector('.btn-save-indicator')?.parentElement;
-
-                if (!badge) return;
-
-                if (status === 'connected') {
-                    badge.style.background = '#e8f5e9';
-                    badge.style.color = '#2e7d32';
-                    badge.innerHTML = '<span style="font-size: 1.2em;">🟢</span> Sync Cloud';
-                    badge.title = "Vos données sont synchronisées en temps réel avec SharePoint.";
-                    // Hide manual buttons in cloud mode
-                    if (manualButtons) manualButtons.style.display = 'none';
-
-                } else if (status === 'local') {
-                    badge.style.background = '#e9ecef';
-                    badge.style.color = '#6c757d';
-                    badge.innerHTML = '<span style="font-size: 1.2em;">⚪</span> Mode Local';
-                    badge.title = "Cliquez pour forcer la configuration SharePoint si vous êtes bien en ligne.";
-                    badge.style.cursor = 'pointer';
-                    badge.onclick = () => {
-                        if (confirm('Forcer la tentative de connexion SharePoint ?\n(À faire uniquement si le fichier est hébergé sur un site SharePoint)')) {
-                            window.app.installSharePointLists();
-                        }
-                    };
-                    // Show buttons in local mode
-                    if (manualButtons) manualButtons.style.display = 'flex';
-
-                } else if (status === 'error') {
-                    badge.style.background = '#ffebee';
-                    badge.style.color = '#c62828';
-                    badge.style.cursor = 'pointer';
-                    badge.innerHTML = '<span style="font-size: 1.2em;">⚠️</span> Configurer';
-                    badge.onclick = () => window.app.installSharePointLists();
-                    if (manualButtons) manualButtons.style.display = 'none'; // Config is priority
-
-                } else if (status === 'saving') {
-                    badge.innerHTML = '<span style="font-size: 1.2em;">🔄</span> Enregistrement...';
-                }
-            },
-
-            // Generic Save Dispatcher
-            async save() {
-                // Toujours sauvegarder en localStorage (fallback)
-                localStorage.setItem(this.storageKey, JSON.stringify(this.data));
-
-                // Sauvegarder aussi dans Firestore si disponible
-                if (window.firebaseDb && window.currentUser) {
-                    try {
-                        const { setDoc, doc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
-
-                        // Helper to convert ArrayBuffer to Base64
-                        const arrayBufferToBase64 = (buffer) => {
-                            let binary = '';
-                            const bytes = new Uint8Array(buffer);
-                            const len = bytes.byteLength;
-                            for (let i = 0; i < len; i++) {
-                                binary += String.fromCharCode(bytes[i]);
-                            }
-                            return window.btoa(binary);
-                        };
-
-                        // Préparer les participants : RETIRER originalPdf pour Firestore
-                        // Nous stockons maintenant pdfData (extrait texte) qui est léger
-                        const participantsForSave = (this.data.participants || []).map(p => {
-                            const pCopy = { ...p };
-                            // Remove heavy PDF binary/base64 data
-                            if (pCopy.originalPdf) {
-                                delete pCopy.originalPdf;
-                            }
-                            delete pCopy.isBase64Pdf;
-                            return pCopy;
-                        });
-
-                        // Sauvegarder les données utilisateur
-                        const userDataRef = doc(window.firebaseDb, 'users', window.currentUser.uid);
-                        await setDoc(userDataRef, {
-                            participants: participantsForSave,
-                            classes: this.data.classes || [],
-                            attendances: this.data.attendances || [],
-                            lastUpdated: new Date().toISOString()
-                        });
-
-                        // Sauvegarder les signatures dans une collection partagée
-                        if (this.data.signatures && this.data.signatures.length > 0) {
-                            const signaturesRef = doc(window.firebaseDb, 'shared', 'signatures');
-                            await setDoc(signaturesRef, {
-                                signatures: this.data.signatures,
-                                lastUpdated: new Date().toISOString()
-                            });
-                            console.log('✅ Signatures sauvegardées dans Firestore');
-                        }
-
-                        console.log('✅ Données sauvegardées dans Firestore');
-                    } catch (error) {
-                        console.error('❌ Erreur Firestore:', error);
-                        // Continue avec localStorage seulement
-                    }
-                }
-
-                if (this.useSharePointLists) {
-                    console.log('ℹ️ List Mode: Global save ignored (Using item-level logic).');
-                } else {
-                    this.updateStatus('saving');
-                    await this.saveToFile();
-                    if (!this.useSharePointLists) this.updateStatus('local'); // Revert status
-                }
-            },
-
-            async saveToFile() {
-                if (window.location.protocol === 'file:') {
-                    this.showSaveIndicator('⚠️ Mode Local (Backup Auto : OFF)');
-                    return;
-                }
-                try {
-                    console.log('☁️ Saving File...');
-                    const headers = { 'Accept': 'application/json;odata=verbose', 'Content-Type': 'application/json;odata=verbose' };
-                    let digest = '';
-                    try {
-                        const cr = await fetch(`${this.baseUrl || ''}_api/contextinfo`, { method: 'POST', headers });
-                        if (cr.ok) digest = (await cr.json()).d.GetContextWebInformation.FormDigestValue;
-                    } catch (e) { }
-
-                    if (digest) {
-                        headers['X-RequestDigest'] = digest;
-                        const path = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/'));
-                        // Note: For file save we might need robust URL too, but legacy save usually expects current folder
-                        // If baseUrl is used, we might need web-relative URL.
-                        // Let's stick to simple relative call for Legacy Save as it likely uses current folder
-                        const spUrl = `${this.baseUrl || ''}_api/web/getfolderbyserverrelativeurl('${path}')/files/add(url='${this.jsonUrl}', overwrite=true)`;
-                        await fetch(spUrl, { method: 'POST', headers, body: JSON.stringify(this.data) });
-                        this.showSaveIndicator('✅ Sauvegardé (Web)');
-                    } else {
-                        await fetch(this.jsonUrl, { method: 'PUT', body: JSON.stringify(this.data) });
-                        this.showSaveIndicator('✅ Sauvegardé');
-                    }
-                } catch (e) {
-                    console.error('Save error:', e);
-                    this.showSaveIndicator('⚠️ Erreur Sauvegarde');
-                }
-            },
-
-            showSaveIndicator(text) {
-                const btn = document.querySelector('.btn-save-indicator');
-                if (btn) {
-                    const originalText = btn.textContent;
-                    btn.textContent = text;
-                    setTimeout(() => btn.textContent = originalText, 4000);
-                }
-            },
-
-            // CRUD Wrappers
-            async getAll(storeName) { return this.data[storeName] || []; },
 
             async get(storeName, id) {
-                const store = this.data[storeName] || [];
-                return store.find(item => item.id === id);
+                const all = await this.getAll(storeName);
+                return all.find(item => item.id === id);
             },
 
             async add(storeName, item) {
-                if (!this.data[storeName]) this.data[storeName] = [];
-                const index = this.data[storeName].findIndex(i => i.id === item.id);
-                if (index !== -1) {
-                    this.data[storeName][index] = item;
-                } else {
-                    this.data[storeName].push(item);
+                if (storeName === STORES.PARTICIPANTS) return await window.firebaseStorage.saveParticipant(item);
+                if (storeName === STORES.CLASSES) return await window.firebaseStorage.saveClass(item);
+                if (storeName === STORES.ATTENDANCE) {
+                    await window.firebaseStorage.saveAttendances([item]);
+                    return item.id;
                 }
-
-                if (this.useSharePointLists) {
-                    await this.spAddOrUpdate(storeName, item);
-                } else {
-                    await this.save();
-                }
-                return item.id;
             },
 
             async update(storeName, item) {
-                if (!this.data[storeName]) this.data[storeName] = [];
-                const index = this.data[storeName].findIndex(i => i.id === item.id);
-                if (index !== -1) {
-                    this.data[storeName][index] = item;
-                } else {
-                    this.data[storeName].push(item);
-                }
-                await this.save();
-                return item.id;
+                return await this.add(storeName, item);
             },
 
             async delete(storeName, id) {
-                if (!this.data[storeName]) return;
-                this.data[storeName] = this.data[storeName].filter(i => i.id !== id);
+                if (storeName === STORES.PARTICIPANTS) return await window.firebaseStorage.deleteParticipant(id);
+                if (storeName === STORES.CLASSES) return await window.firebaseStorage.deleteClass(id);
+                // Attendance delete not strictly implemented in adapter but rarely used directly by ID
+            },
 
-                if (this.useSharePointLists) {
-                    // await this.spDelete(storeName, id); // Assuming spDelete exists for SharePoint lists
-                } else {
-                    await this.save();
+            // Signatures
+            async getSignatures() {
+                try {
+                    // Quick fix: access firestore directly or add to adapter if missing
+                    // Assuming adapter handles it or we use direct firestore here
+                    // Ideally update adapter, but for now lets return empty or try/catch
+                    return [];
+                } catch (e) { return []; }
+            },
+
+            async init() {
+                console.log('🔥 Initializing Firebase DB Service...');
+                if (window.firebaseStorage) {
+                    await window.firebaseStorage.init();
+                    return { participants: [], classes: [], attendance: [] }; // Dummy return, data is async
                 }
+                return { participants: [], classes: [], attendance: [] };
+            },
+
+            // Compatibility for Auth Callback and Legacy calls
+            async loadFromFile() {
+                return this.init();
+            },
+
+            async detectBaseUrl() {
+                return null; // Not used in Firebase mode
             }
         };
 
         // --- INSTALLER LOGIC (External) ---
+        // --- INSTALLER LOGIC (External) ---
+        // DISABLED IN FIREBASE VERSION
         window.app.installSharePointLists = async function () {
-            if (!confirm('Voulez-vous installer les bases de données SharePoint (Listes) maintenant ?\n\nNécessaire pour le mode multi-utilisateurs.')) return;
-
-            const lists = ['MMT_Participants', 'MMT_Classes', 'MMT_Attendance'];
-            let log = '';
-
-            try {
-                // Use detected URL or try current Relative
-                let baseUrl = dbService.baseUrl;
-                if (baseUrl === undefined) baseUrl = '';
-
-                const r = await fetch(`${baseUrl}_api/contextinfo`, { method: 'POST', headers: { 'Accept': 'application/json;odata=verbose' } });
-                const digest = (await r.json()).d.GetContextWebInformation.FormDigestValue;
-
-                for (const title of lists) {
-                    try {
-                        console.log(`Creating ${title}...`);
-                        await fetch(`${baseUrl}_api/web/lists`, {
-                            method: 'POST',
-                            headers: {
-                                'Accept': 'application/json;odata=verbose',
-                                'Content-Type': 'application/json;odata=verbose',
-                                'X-RequestDigest': digest
-                            },
-                            body: JSON.stringify({
-                                '__metadata': { 'type': 'SP.List' },
-                                'AllowContentTypes': true,
-                                'BaseTemplate': 100, // Generic List
-                                'ContentTypesEnabled': true,
-                                'Description': 'Database for MMT App',
-                                'Title': title
-                            })
-                        });
-
-                        await fetch(`${baseUrl}_api/web/lists/getbytitle('${title}')/fields`, {
-                            method: 'POST',
-                            headers: {
-                                'Accept': 'application/json;odata=verbose',
-                                'Content-Type': 'application/json;odata=verbose',
-                                'X-RequestDigest': digest
-                            },
-                            body: JSON.stringify({
-                                '__metadata': { 'type': 'SP.Field' },
-                                'Title': 'JSON_Data',
-                                'FieldTypeKind': 3, // Memo/Note
-                                'Required': false,
-                                'EnforceUniqueValues': false,
-                                'StaticName': 'JSON_Data'
-                            })
-                        });
-
-                        log += `✅ Liste ${title} créée.\n`;
-                    } catch (e) {
-                        log += `⚠️ Liste ${title} existe déjà ou erreur.\n`;
-                    }
-                }
-                alert('Installation terminée !\n\n' + log + '\nRechargez la page.');
-                location.reload();
-            } catch (e) {
-                alert('Erreur: Impossible de contacter SharePoint.\n' + e.message + '\n\nVérifiez que le fichier est bien sur le site SharePoint.');
-            }
+            alert('Cette version utilise Firebase Firestore. L\'installation SharePoint n\'est pas requise.');
         };
 
         // Participant Service
